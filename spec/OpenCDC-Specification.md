@@ -1,10 +1,10 @@
-OpenCDC Specification -- Draft v0.6.9
+OpenCDC Specification -- Draft v0.7.0
 
 # OpenCDC
 
 # Open Change Data Capture Specification
 
-Draft v0.6.9 -- June 2026
+Draft v0.7.0 -- June 2026
 
 Status: Draft for Discussion
 
@@ -64,6 +64,7 @@ Status: Draft for Discussion
   - [10.2 TRUNCATE](#102-truncate)
   - [10.3 SNAPSHOT (Initial Load)](#103-snapshot-initial-load)
   - [10.4 STREAM_METADATA](#104-stream_metadata)
+  - [10.5 TRX_COMMIT](#105-trx_commit)
 - [11. Idempotency and Deduplication](#11-idempotency-and-deduplication)
   - [11.1 Deduplication Key](#111-deduplication-key)
   - [11.2 Producer Obligations for Idempotency](#112-producer-obligations-for-idempotency)
@@ -94,6 +95,7 @@ Status: Draft for Discussion
   - [A.7 Consumer Idempotency Obligations](#a7-consumer-idempotency-obligations)
   - [A.8 Implementation Safety & Monitoring Notes](#a8-implementation-safety--monitoring-notes)
   - [A.9 Operational Mode Selection Guidance](#a9-operational-mode-selection-guidance)
+  - [A.10 Transaction Completeness Guidance](#a10-transaction-completeness-guidance)
 
 <!-- toc:end -->
 
@@ -103,6 +105,10 @@ OpenCDC Working Group
 This document specifies OpenCDC, a vendor-neutral JSON format for change data capture event streams. OpenCDC uses CloudEvents v1.1 as its envelope layer, combined with a schema-first payload design that provides full type fidelity across heterogeneous database engines. The standard mandates self-describing, schema-inline streams that are independently consumable without external infrastructure dependencies. It defines canonical representations for DML operations, DDL events, transaction identity, schema evolution, and stream lifecycle events. Type system semantics are defined in the companion OpenCDC Type System Proposal (v0.2), which is a normative reference to this specification. This document is written for implementers -- engineers at CDC tool vendors, database vendors, and pipeline platform teams who will produce or consume conformant OpenCDC streams. All behavioral requirements use RFC 2119 terminology (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY).
 
 # Change Log
+
+- **v0.7.0**
+  - Date: June 2026
+  - Summary of Changes: Minor release -- new optional capability; no change to the wire protocol version (0.2) or the minimum interoperability profile. (1) New TRX_COMMIT lifecycle event type (Section 10.5): an optional, capability-declared transaction completeness marker that provides deterministic transaction-boundary detection for decoupled topologies (multi-topic, multi-partition, object storage) where the existing cdcxid-change / HEARTBEAT inference is unsound. Carries event_count (count of distinct deduplicated cdctxorder ordinals) and an optional distribution map; no physical transport coordinates. (2) New STREAM_METADATA fields: transaction_boundaries (none / commit_all / commit_multi_event) and transaction_visibility (committed_only; reserved axis for future uncommitted-streaming modes with fail-closed unknown-value handling). (3) Section 8.3 amended: "No Transaction Completion Marker" block replaced with "Transaction Completion Signals" covering conditions (a)/(b) (existing inference, scoped to single-channel topologies) and new condition (c) (TRX_COMMIT marker); physical topology fan-out clarification added. (4) New normative rules: P-TRX-1..6, R-POS-6 (marker replay coverage). (5) New consumer guidance in Appendix A.10: C-TRX-1 (fail-closed on unrecognized transaction_visibility), C-TRX-2..5 (completeness algorithm, topic-filtered consumers, ephemeral mode). (6) Forward-compatibility rule added to Appendix A.10: consumers SHOULD ignore unrecognized meta.* lifecycle event types (safe -- no row data); MUST NOT ignore unrecognized dml.* or ddl.* types. TRX_BEGIN and TRX_ABORT reserved as type names for a future uncommitted-streaming mode; not specified in this version.
 
 - **v0.6.9**
   - Date: June 2026
@@ -390,7 +396,7 @@ To ensure that partial implementations can interoperate, OpenCDC defines a Minim
   - Producer MUST: Emit HEARTBEAT during idle periods
   - Consumer MUST: Monitor HEARTBEAT to distinguish idle from broken stream
 
-Stretch features (UPSERT, TRUNCATE, SNAPSHOT, bidirectional sync loop prevention, partial UPDATE images, Observability fields) are RECOMMENDED but not required for minimum profile conformance.
+Stretch features (UPSERT, TRUNCATE, SNAPSHOT, bidirectional sync loop prevention, partial UPDATE images, Observability fields, transaction boundary markers) are RECOMMENDED but not required for minimum profile conformance.
 
 TRUNCATE conformance refinement: A producer that emits TRUNCATE events and whose source engine exposes truncate execution options (such as cascade behavior or identity-sequence reset behavior) SHOULD populate the truncate_details object defined in Section 10.2. A producer that emits TRUNCATE events for an engine that does not expose such options (or cannot observe them from the capture layer) MAY omit truncate_details entirely. A producer that omits truncate_details is conformant; a producer that populates truncate_details with incorrect or fabricated values is non-conformant. See Section 10.2 for the full truncate_details specification and per-engine guidance.
 
@@ -406,15 +412,15 @@ OpenCDC adopts CloudEvents v1.1 as its mandatory envelope specification. Every O
 
 - **id**
   - Required: MUST
-  - Value / Constraint: UUID v4 MUST be used for DML and DDL events, where (source, id) is the load-bearing deduplication key. Lifecycle events (OBJECT_METADATA, STREAM_METADATA, HEARTBEAT) MUST carry a stream-unique, replay-stable id but MAY use a structured descriptive form (e.g., schema-ORDERS-v1) when that form is more operationally useful than an opaque UUID. Regardless of form, id MUST be stable across replay of the same event.
+  - Value / Constraint: UUID v4 MUST be used for DML and DDL events, where (source, id) is the load-bearing deduplication key. Lifecycle events (OBJECT_METADATA, STREAM_METADATA, HEARTBEAT, TRX_COMMIT) MUST carry a stream-unique, replay-stable id but MAY use a structured descriptive form (e.g., schema-ORDERS-v1, txn-{cdcxid}-commit) when that form is more operationally useful than an opaque UUID. Regardless of form, id MUST be stable across replay of the same event. TRX_COMMIT ids MUST be distinct from any id used by a sibling event of the same transaction (e.g., append a discriminator such as "-commit" to prevent collisions with any future lifecycle sibling).
 
 - **source**
   - Required: MUST
   - Value / Constraint: URI identifying the origin system and database. Format: //{host}/{instance}/{schema}. Example: //oracle-prod.acme.com/ORCL/FINANCE
 
 - **subject**
-  - Required: MUST for table-scoped events (DML, DDL, OBJECT_METADATA, snapshot.READ); omitted for stream-scoped events (STREAM_METADATA, HEARTBEAT)
-  - Value / Constraint: Fully qualified table identifier. Format: {schema}.{table}. Example: FINANCE.ORDERS
+  - Required: MUST for table-scoped events (DML, DDL, OBJECT_METADATA, snapshot.READ); omitted for stream-scoped and transaction-scoped events (STREAM_METADATA, HEARTBEAT, TRX_COMMIT)
+  - Value / Constraint: Fully qualified table identifier. Format: {schema}.{table}. Example: FINANCE.ORDERS. TRX_COMMIT spans zero or more tables and has no single valid subject; subject MUST be omitted.
 
 - **type**
   - Required: MUST
@@ -451,6 +457,10 @@ com.{org}.cdc.ddl.DROP
 com.{org}.cdc.meta.STREAM_METADATA    # stream-level metadata at session start
 com.{org}.cdc.meta.OBJECT_METADATA    # table schema -- mandatory before first DML
 com.{org}.cdc.meta.HEARTBEAT          # liveness signal during idle periods
+com.{org}.cdc.meta.TRX_COMMIT         # transaction completeness marker (optional; capability-declared in STREAM_METADATA)
+# Reserved lifecycle names -- NOT specified in this version; reserved for future transaction_visibility modes:
+# com.{org}.cdc.meta.TRX_BEGIN  -- becomes load-bearing only if uncommitted streaming is added
+# com.{org}.cdc.meta.TRX_ABORT  -- whole-transaction rollback signal; requires consumer undo model
 # Snapshot (initial load)
 com.{org}.cdc.snapshot.READ           # full row at snapshot time; before=null
 ```
@@ -469,23 +479,23 @@ CDC-specific envelope fields that have no CloudEvents native equivalent are carr
 
 - **cdcxid**
   - Type: String
-  - Required: MUST (DML/DDL)
-  - Description: Transaction identifier, source-normalized to a human-readable string. All events in the same source transaction carry the same cdcxid value. Format is source-specific but MUST be stable and unique within the stream.
+  - Required: MUST (DML/DDL/TRX_COMMIT)
+  - Description: Transaction identifier, source-normalized to a human-readable string. All events in the same source transaction carry the same cdcxid value, including the transaction's TRX_COMMIT marker when present. Format is source-specific but MUST be stable and unique within the stream.
 
 - **cdctxorder**
   - Type: Integer
-  - Required: MUST (DML/DDL)
-  - Description: 0-based ordinal position of this event within its transaction. (cdcxid, cdctxorder) pairs MUST be unique and monotonically increasing within a transaction.
+  - Required: MUST (DML/DDL); MUST NOT be present on TRX_COMMIT
+  - Description: 0-based ordinal position of this event within its transaction. (cdcxid, cdctxorder) pairs MUST be unique and monotonically increasing within a transaction. TRX_COMMIT is deliberately excluded from the ordinal sequence so that event_count equals the count of DML/DDL ordinals without ambiguity.
 
 - **cdcpos**
   - Type: String
-  - Required: MUST for DML, DDL, and HEARTBEAT events. MUST for OBJECT_METADATA events that are part of the durable stream; omitted for session-scoped re-emissions (Schema on Reconnect, Schema on Each Event). Omitted for STREAM_METADATA (session-scoped; not part of durable stream ordering per Section 4.1).
+  - Required: MUST for DML, DDL, HEARTBEAT, and TRX_COMMIT events. MUST for OBJECT_METADATA events that are part of the durable stream; omitted for session-scoped re-emissions (Schema on Reconnect, Schema on Each Event). Omitted for STREAM_METADATA (session-scoped; not part of durable stream ordering per Section 4.1).
   - Description: Opaque, stable stream position for consumer resume/replay. Consumers MUST treat this as an opaque string -- do not parse. See Section 8 (Position and Replay Semantics).
 
 - **partitionkey**
   - Type: String
   - Required: SHOULD
-  - Description: Set to the primary key hash of the changed row. Ensures a partitioned transport keeps related rows on the same partition. This is the official CloudEvents partitioning extension. CRITICAL: All events belonging to the same transaction (same cdcxid) MUST be assigned the same partitionkey. A producer that emits events of a single transaction across multiple partitionkey values is non-conformant -- transaction integrity cannot be guaranteed across independent partitions.
+  - Description: Set to the primary key hash of the changed row. Ensures a partitioned transport keeps related rows on the same partition. This is the official CloudEvents partitioning extension. CRITICAL: All events belonging to the same transaction (same cdcxid) MUST be assigned the same partitionkey -- including TRX_COMMIT. A producer that emits events of a single transaction across multiple partitionkey values is non-conformant -- transaction integrity cannot be guaranteed across independent partitions.
 
 - **sequence**
   - Type: String
@@ -1116,6 +1126,8 @@ Every DML, DDL, and HEARTBEAT event MUST include a pos object in its data payloa
 
 - R-POS-5: At-least-once delivery is the minimum guarantee. Producers MAY emit duplicate events during replay. Consumers handle duplicates per Appendix A.3 (Idempotency).
 
+- R-POS-6 (TRX_COMMIT Replay Coverage): When transaction_boundaries is not "none", a replay window that includes any event of transaction X MUST also include X's TRX_COMMIT marker. The replayed TRX_COMMIT MUST carry the same id, event_count, and cdcxid as the original delivery. A producer that can replay the events of a transaction but drops the corresponding marker during replay is non-conformant.
+
 **Replay Guarantee Summary**
 Conformant replay MUST satisfy all three of the following:
 1. BEGINS BEFORE SCHEMA: Replay begins at or before the OBJECT_METADATA event that was current for each in-scope table at the resume position. The consumer always receives its schema before its first data event.
@@ -1153,14 +1165,23 @@ Transaction identity is available at two layers by design:
   - Layer: Payload data
   - Use: Passed to source for precise log replay. Do not parse.
 
-- T-COMPLETE: A transaction is complete when (a) the first event of a new cdcxid is observed, OR (b) a HEARTBEAT is received after all events of the transaction have been delivered. Producers MUST emit a HEARTBEAT within the configured heartbeat_interval_seconds after any transaction that is followed by an idle period (T-HEARTBEAT). This guarantees that consumers are never left waiting indefinitely for a transaction completion signal. Consumers MUST NOT commit a transaction until T-COMPLETE is satisfied by one of the two conditions above.
-
 - T-NOINTERLEAVE: Events from different transactions MUST NOT be interleaved in the stream. All events of transaction cdcxid=A MUST be delivered before any event of transaction cdcxid=B, for any A that commits before B. A producer that interleaves transaction events is non-conformant.
 
 - T-ORDER: Within a transaction, events MUST be delivered in cdctxorder sequence (0, 1, 2, ...). Gaps in cdctxorder are a producer conformance error. Consumers detecting a gap MUST surface an error and MUST NOT apply subsequent events until the gap is resolved.
 
-**No Transaction Completion Marker**
-OpenCDC does not define an explicit COMMIT event type. Transaction completion is inferred: a consumer that has received all events for a given cdcxid (detected by receiving the first event of the next cdcxid, or by a HEARTBEAT after a transaction) may commit the transaction atomically. Producers MUST emit all events of a transaction before emitting any event of a subsequent transaction (i.e., transactions MUST NOT be interleaved in the stream). This guarantee makes transaction boundary detection reliable from cdcxid alone.
+**Transaction Completion Signals**
+
+OpenCDC supports two mechanisms for determining that a consumer holds all events for a transaction. The appropriate mechanism depends on the transport topology.
+
+Condition (a) -- next-cdcxid inference: a new cdcxid value is observed in the stream. Sound on a single totally-ordered channel (P2P stream, single Kafka partition, single queue). NOT sound when a transaction's events may arrive via multiple independent channels (multiple Kafka topics, multiple partitions, object storage): in that topology, observing the next cdcxid on one channel tells the consumer nothing about events that may still be in transit on other channels.
+
+Condition (b) -- HEARTBEAT inference: a HEARTBEAT is received after all events of the current cdcxid have been delivered. Producers MUST emit a HEARTBEAT within the configured heartbeat_interval_seconds after any transaction followed by idle (T-HEARTBEAT). Sound on a single totally-ordered channel only; same scoping caveat as (a).
+
+Condition (c) -- TRX_COMMIT marker: a TRX_COMMIT event for the cdcxid is received, AND the consumer holds distinct deduplicated event ordinals 0 through (event_count - 1) for that cdcxid. This is the supported mechanism for multi-topic, multi-partition, and object-storage topologies where (a) and (b) are not sound. See Section 10.5 for the full TRX_COMMIT specification.
+
+**Physical topology and transaction fan-out:** A logical OpenCDC stream MAY be physically distributed across multiple channels (topics, queues, storage objects). Ordering guarantees (R-POS-0, P-ORD-6) are per-channel. Cross-channel transaction assembly -- determining that all events of a transaction have been received when they arrived via different channels -- requires condition (c). Producers operating in a multi-channel topology SHOULD declare transaction_boundaries in STREAM_METADATA (Section 10.4) to enable consumers to use condition (c). Producers operating in a single-channel topology MAY rely on (a) and (b) and MAY omit transaction boundary markers.
+
+- T-COMPLETE (amended): Producers MUST ensure that at least one of the following completion signals is available to the consumer: (a) the next transaction's first event follows immediately; (b) a HEARTBEAT follows within heartbeat_interval_seconds; or (c) a TRX_COMMIT event for the transaction has been emitted (when transaction_boundaries is not "none"). These conditions are not mutually exclusive; a producer in a single-channel deployment satisfies all three simultaneously. Consumer obligations regarding T-COMPLETE are non-normative service-level guidance; see Appendix A.10.
 
 **TRUNCATE and Transaction Boundaries -- Engine-Specific Behavior**
 TRUNCATE has materially different transactional properties depending on the source database engine, and producers MUST handle cdcxid assignment accordingly.
@@ -1417,10 +1438,98 @@ STREAM_METADATA events carry stream-level information and MUST be emitted at the
       "schema_on_each_event":   false,
       "schema_by_reference":    false
     },
-    "sequence_continuity":        "guaranteed"
+    "sequence_continuity":        "guaranteed",
+    "transaction_boundaries":     "commit_multi_event",
+    "transaction_visibility":     "committed_only"
   }
 }
 ```
+
+**`transaction_boundaries`** — declares whether the producer emits TRX_COMMIT markers, and when.
+
+- `"none"` (default when absent): no TRX_COMMIT markers are emitted. Consumers use T-COMPLETE conditions (a) and (b). This is the default for producers that have not implemented the optional transaction boundary feature, and is the only valid value for deployments where no markers are needed.
+- `"commit_all"`: a TRX_COMMIT is emitted for every transaction without exception, including single-event synthetic transactions (e.g., non-transactional TRUNCATE).
+- `"commit_multi_event"`: a TRX_COMMIT is emitted only for transactions where event_count ≥ 2. Absence of a marker after a single-event transaction is expected and correct -- not a gap. This mode is declared so that consumers can rely on deterministic behavior.
+
+Producers MUST NOT emit TRX_COMMIT events unless transaction_boundaries is declared and is not "none". Producers that declare transaction_boundaries MUST apply the declared mode consistently for the entire session.
+
+**`transaction_visibility`** — declares the transaction isolation semantics of the stream.
+
+- `"committed_only"` (default when absent): all emitted events belong to transactions that have been committed at the source. This version of the specification defines only this value. Absence of the field MUST be treated as `"committed_only"`. See Section 10.5 and Appendix A.10 for consumer fail-closed requirements on encountering unrecognized values.
+
+## 10.5 TRX_COMMIT
+
+TRX_COMMIT is an optional lifecycle event that provides consumers with a deterministic transaction-completeness signal. It is delivered in-stream, after all DML and DDL events of the transaction and before any event of the next transaction, preserving T-NOINTERLEAVE. It is enabled and scoped by the transaction_boundaries declaration in STREAM_METADATA (Section 10.4).
+
+**When to use TRX_COMMIT:** On a single totally-ordered channel, T-COMPLETE conditions (a) and (b) are sufficient and markers add per-transaction overhead. TRX_COMMIT is the correct completeness mechanism when a transaction's events may arrive via multiple independent channels -- multiple Kafka topics, multiple partitions each carrying a different table's events, or object-storage retrieval where there is no ordering channel at all. In those topologies, conditions (a) and (b) are unsound (see Section 8.3). Producers SHOULD emit markers when operating in or supporting multi-channel deployments.
+
+**The completeness primitive:** T-ORDER guarantees that cdctxorder is 0-based, gapless, and monotonically increasing within a transaction. The only missing piece for deterministic completeness in any retrieval topology is N, the total event count. With N declared in TRX_COMMIT, a consumer's completeness check is: *do I hold distinct deduplicated ordinals 0 through N-1 for this cdcxid?* This check requires no ordering assumptions and no physical-transport knowledge -- it works whether events arrived sequentially, in parallel, or out of order across channels.
+
+**Envelope rules for TRX_COMMIT:**
+
+- `id`: MUST be stream-unique and replay-stable. SHOULD use a structured descriptive form such as `txn-{cdcxid}-commit`. MUST be distinct from any id used by the transaction's DML/DDL events and from any reserved lifecycle sibling (TRX_BEGIN, TRX_ABORT). (P-TRX-3)
+- `source`: MUST be the same value as the transaction's events.
+- `subject`: MUST be omitted. TRX_COMMIT is transaction-scoped, not table-scoped.
+- `time`: MUST be set to the source commit timestamp.
+- `cdcxid`: MUST be present as an envelope extension attribute (§3.3) carrying the transaction identifier. (P-TRX-3)
+- `cdctxorder`: MUST NOT be present. TRX_COMMIT is outside the DML/DDL ordinal sequence. (P-TRX-2)
+- `cdcpos`: MUST be present. TRX_COMMIT is a durable, replay-relevant event. (P-TRX-3, R-POS-6)
+- `partitionkey`: MUST equal the transaction's partitionkey. (P-TRX-3, P-ORD-6)
+
+**Payload fields:**
+
+```json
+{
+  "specversion": "1.1",
+  "id": "txn-1510528009.5.13.0001-commit",
+  "source": "//oracle-prod.acme.com/ORCL/FINANCE",
+  "type": "com.acme.cdc.meta.TRX_COMMIT",
+  "time": "2026-05-03T09:00:00.000Z",
+  "datacontenttype": "application/json",
+  "cdcspecversion": "0.2",
+  "cdcxid": "1510528009.5.13.0001",
+  "cdcpos": "AAAQ8sAAEAAAACfAAA-c",
+  "partitionkey": "42",
+  "data": {
+    "cdcxid": "1510528009.5.13.0001",
+    "event_count": 3,
+    "distribution": {
+      "FINANCE.CUSTOMER_ORDERS": 1,
+      "FINANCE.CUSTOMER_ORDER_LINES": 1,
+      "FINANCE.CUSTOMER_ORDER_LINE_DETAILS": 1
+    },
+    "pos": {
+      "lsn": "000000005DE4A891",
+      "lsn_offset": 3,
+      "source_timestamp": "2026-05-03T09:00:00.000Z",
+      "native_position": "1510528009.5.13.0001:3"
+    }
+  }
+}
+```
+
+- **`event_count`** (MUST): the number of distinct cdctxorder ordinals of DML and DDL events in the transaction, counted after deduplication by (source, id). DDL events that carry cdctxorder (e.g., DDL mid-transaction in PostgreSQL or SQL Server) are included. Lifecycle events (OBJECT_METADATA, HEARTBEAT, TRX_COMMIT) are never counted and never carry cdctxorder. A correct completeness check against event_count uses distinct cdctxorder values -- not raw event arrival count. Raw counts are unsound under at-least-once delivery (R-POS-5) and MUST NOT be used. (P-TRX-2)
+
+- **`distribution`** (SHOULD): map of `subject` value → count of distinct cdctxorder ordinals from events carrying that subject. Values MUST sum to event_count when the field is present. Keys MUST be the subject strings as they appear in the transaction's events. Distribution enables consumers that subscribe to only a subset of a transaction's tables to compute their own subset-completeness without needing the full transaction. A consumer that reads only one topic and receives distribution SHOULD verify its held ordinals against distribution[subject] rather than event_count. (P-TRX-4)
+
+- **`data.cdcxid`** (MUST): mirror of the envelope cdcxid, for payload-only processors that do not inspect CloudEvents extension attributes.
+
+- **`pos`** (MUST): standard structured position block (Section 8.1). Positions the marker at or after the transaction's last event. lsn_offset SHOULD equal event_count - 1 (the ordinal of the final event).
+
+**Normative producer rules:**
+
+- P-TRX-1: If transaction_boundaries is not "none", a conformant producer MUST emit exactly one TRX_COMMIT per transaction per the declared mode, after all DML/DDL events of the transaction and before any event of the next transaction.
+- P-TRX-2: event_count MUST equal the count of distinct cdctxorder ordinals from the transaction's DML and DDL events. DDL events mid-transaction are included. Lifecycle events are excluded.
+- P-TRX-3: TRX_COMMIT MUST carry cdcxid as an envelope attribute, a replay-stable id that is distinct from the transaction's DML/DDL event ids, cdcpos, and the transaction's partitionkey. subject MUST be omitted. cdctxorder MUST NOT be present.
+- P-TRX-4: When distribution is present, its values MUST sum to event_count and its keys MUST match the subject values used in the transaction's events.
+- P-TRX-5: A producer MUST NOT emit TRX_COMMIT events unless transaction_boundaries is declared and is not "none" in the session's STREAM_METADATA.
+- P-TRX-6: A producer MUST declare transaction_visibility in STREAM_METADATA. In this version only "committed_only" is a conformant value. Absence of the field MUST be treated as "committed_only" by consumers.
+
+**Multi-table TRUNCATE worked example:** A PostgreSQL `TRUNCATE CUSTOMER_ORDERS, CUSTOMER_ORDER_LINES, CUSTOMER_ORDER_LINE_DETAILS;` emits three TRUNCATE events (cdctxorder 0, 1, 2) all sharing one cdcxid. The TRX_COMMIT carries `event_count: 3` and distribution with all three subjects at 1. A consumer that reads all three events can verify completeness without any ordering assumption across channels. This is the canonical cross-channel completeness scenario.
+
+**Interaction with HEARTBEAT:** TRX_COMMIT does not replace the T-HEARTBEAT obligation. Producers MUST still emit HEARTBEAT during idle periods. On a single-channel deployment, a HEARTBEAT after a transaction's last event provides condition (b) completion even when markers are disabled. In a multi-channel deployment, the HEARTBEAT satisfies liveness monitoring (Appendix A.8) but is insufficient for cross-channel completeness -- condition (c) is required there.
+
+**Layering note:** Some transport infrastructure provides its own transaction semantics at the delivery layer (e.g., write-atomicity guarantees in streaming platforms). Those mechanisms operate at the transport layer and address producer write-side atomicity. TRX_COMMIT operates at the OpenCDC layer and addresses the source database transaction identity visible to consuming applications. The two are complementary and serve different purposes.
 
 # 11. Idempotency and Deduplication
 
@@ -1561,6 +1670,10 @@ Durable Mode is the default and primary mode for OpenCDC. It is required for all
   - Producer Obligation: MUST guarantee schema availability for replay (Section 6.4, Approach 1 and/or 2).
   - Consumer Obligation: MUST NOT apply a DML event without first resolving its schema.
 
+- **Transaction boundary marker replay**
+  - Producer Obligation: When transaction_boundaries is not "none", a replay window that includes any event of a transaction MUST also include that transaction's TRX_COMMIT (R-POS-6).
+  - Consumer Obligation: See Appendix A.10.
+
 ## 15.2 Ephemeral Mode
 
 Ephemeral Mode is appropriate for use cases where real-time event delivery is the priority and brief data loss is explicitly acceptable — reactive AI-agent pipelines, live dashboards, alerting systems, and monitoring feeds — where a gap in coverage does not constitute a data integrity failure.
@@ -1580,6 +1693,9 @@ Ephemeral Mode is appropriate for use cases where real-time event delivery is th
 - **Schema availability**
   - Producer Obligation: MUST still emit OBJECT_METADATA before first DML and after DDL -- even in ephemeral mode. Schema delivery is not optional in any mode.
   - Consumer Obligation: MUST still cache and apply schema before decoding DML values. Schema correctness is required even when data loss is tolerated.
+
+**Transaction Boundary Markers in Ephemeral Mode**
+Transaction boundary markers (TRX_COMMIT) are permitted in Ephemeral Mode under the same rules as Durable Mode. Producers MAY declare transaction_boundaries and emit markers; when declared, the producer obligations in Section 10.5 apply. The consumer completeness guarantee in condition (c) is weakened by Ephemeral Mode's at-most-once delivery: a consumer in Ephemeral Mode MUST NOT treat a missing marker as an error requiring operator action (per Ephemeral Mode data-loss tolerance), but SHOULD still verify event_count when the marker is received.
 
 **Schema Delivery Is Not Optional in Ephemeral Mode**
 Even in Ephemeral Mode, where data loss is acceptable, schema delivery (OBJECT_METADATA before first DML) remains a MUST. A consumer that receives a DML event without a cached schema cannot decode the values -- this is not a data loss scenario, it is a parsing failure. Producers in Ephemeral Mode MUST still implement Approach 1 reconnection (re-emit current schemas on consumer connection). The schema is not stream data -- it is the key to interpreting stream data.
@@ -2071,7 +2187,7 @@ The following scenarios are the minimum test suite for conformance validation. E
   - Pass Criterion: Producer emits an Oracle TRUNCATE event with a synthetic cdcxid (not a real Oracle transaction ID). The synthetic cdcxid is stable: replay of the same event carries the same synthetic cdcxid. Consumer deduplicates on (source, id) correctly, not on cdcxid alone. truncate_details shows cascade: "not_applicable" and sequence_reset: "not_applicable".
   - Use Case: Data fidelity; Non-transactional TRUNCATE identity
 
-OpenCDC Specification -- Draft v0.6.9 -- June 2026 -- OpenCDC Working Group
+OpenCDC Specification -- Draft v0.7.0 -- June 2026 -- OpenCDC Working Group
 
 # Appendix A: Consumer Conformance, Obligations & Service-Level Guidance
 
@@ -2179,5 +2295,35 @@ The choice of operational mode is a deployment architecture decision made by the
 Ephemeral Mode SHOULD NOT be used for use cases that require zero data loss or a persistent target state — including cross-vendor replication, same-type replication, and lakehouse ingestion. These use cases depend on guaranteed event delivery and durable replay; a deployment using Ephemeral Mode for them accepts data loss risk that is incompatible with those use cases' correctness requirements. Deployments targeting these use cases SHOULD use Durable Mode.
 
 A single producer deployment MAY serve both Durable and Ephemeral consumers simultaneously against the same stream, provided the producer satisfies the Durable Mode producer obligations (Section 15.1), which are a superset of Ephemeral Mode obligations.
+
+## A.10 Transaction Completeness Guidance
+
+This section provides non-normative consumer guidance for the TRX_COMMIT mechanism (Section 10.5) and the transaction_visibility declaration (Section 10.4). Producer obligations are normative and stated in those sections.
+
+**C-TRX-1 (fail-closed on unrecognized transaction_visibility):** A consumer that receives a STREAM_METADATA event declaring a transaction_visibility value it does not recognize MUST refuse the stream and MUST NOT apply any events from it as if they were committed. Unknown values may indicate an uncommitted-streaming mode or another future mode with fundamentally different consumer semantics. Proceeding as if committed would silently corrupt the consumer's target state. This rule converts a future silent-corruption scenario into a loud, detectable refusal.
+
+**C-TRX-2 (prefer condition (c) in multi-channel topologies):** In streams where a transaction's events may arrive via multiple independent channels (multiple topics, multiple partitions, object storage), consumers SHOULD use T-COMPLETE condition (c) -- the TRX_COMMIT marker check -- rather than conditions (a) and (b). Conditions (a) and (b) are unsound on multi-channel transports: observing the next cdcxid on one channel carries no information about events still in transit on other channels.
+
+**C-TRX-3 (verify event_count against held ordinals):** Before atomically applying a transaction's events, a consumer SHOULD verify that it holds distinct deduplicated cdctxorder ordinals 0 through (event_count - 1) for the cdcxid. The correct check is against deduplicated ordinals -- not raw event arrival count. Under at-least-once delivery (R-POS-5) a consumer may hold more raw events than event_count due to duplicates; deduplication by (source, id) and then verification by distinct ordinal is the correct algorithm. On a mismatch, the consumer SHOULD surface a conformance error and SHOULD NOT apply the transaction.
+
+**C-TRX-4 (topic-filtered consumers using distribution):** A consumer that subscribes to only a subset of a transaction's tables (e.g., consuming only one Kafka topic in a topic-per-table deployment) SHOULD use the distribution map to compute subset-completeness rather than event_count. Verify that held distinct ordinals for each consumed subject equal distribution[subject]. Total-transaction completeness requires all subjects; the consumer need only verify the subjects it has subscribed to.
+
+**C-TRX-5 (Ephemeral Mode marker handling):** In Ephemeral Mode, the absence of a TRX_COMMIT marker for a transaction is an accepted condition, not an error. When a marker is received, its event_count SHOULD still be verified against held ordinals. A consumer in Ephemeral Mode MUST NOT block indefinitely waiting for a marker that may never arrive due to delivery loss.
+
+**C-TRX-6 (forward-compatibility: unknown lifecycle event types):** A consumer that receives an event whose type suffix matches `meta.*` but is not recognized (e.g., a future TRX_BEGIN or TRX_ABORT) SHOULD ignore the event and continue processing. Unrecognized `meta.*` lifecycle events carry no row data and ignoring them is safe. A consumer that receives an event whose type suffix matches `dml.*` or `ddl.*` and is not recognized MUST NOT ignore it -- unrecognized data-bearing events may represent schema or data changes that, if silently skipped, would corrupt the consumer's target state. Surface an error and halt until the event type is understood.
+
+**Deduplicated-ordinal completeness algorithm (informative):**
+```
+state = {}  # keyed by cdcxid
+on event e with cdcxid X, cdctxorder N:
+    state[X].seen_ordinals.add(N)          # add to set (deduplicates)
+on TRX_COMMIT for cdcxid X, event_count N:
+    complete = (state[X].seen_ordinals == set(range(N)))
+    if complete:
+        apply_atomically(state[X].events)
+    else:
+        surface_error("gap in ordinals for " + X)
+    del state[X]
+```
 
 OpenCDC Working Group -- Draft for Discussion
