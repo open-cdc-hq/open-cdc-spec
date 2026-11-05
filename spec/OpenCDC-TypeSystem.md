@@ -88,7 +88,6 @@ Status: Draft for Discussion
 - [9. Requirements](#9-requirements)
 - [10. Known Limitations (Informative)](#10-known-limitations-informative)
 - [Appendix A. Consumer Guidance (Informative)](#appendix-a-consumer-guidance-informative)
-- [Appendix B. Differences from the Debezium Type Model (Informative)](#appendix-b-differences-from-the-debezium-type-model-informative)
 - [Change Log](#change-log)
 - [References](#references)
   - [Normative References](#normative-references)
@@ -2379,42 +2378,6 @@ Consumer behavior depends on the target. It is not a conformance subject. This a
 - C-TYPE-12: A consumer that applies a NATIVE `oracle.sdo_geometry.sdo@1` value to another engine SHOULD convert it as `SDO_UTIL.TO_WKTGEOMETRY` would. The element types WKT cannot express (arcs, optimized rectangles, solids, measures) SHOULD be a conversion that the operator configures.
 
 - C-TYPE-13: A consumer that applies a `spatial` value to SQL Server SHOULD rewrite the OGC dimension markers into SQL Server's form, because SQL Server's WKT parser rejects the markers. `POINT Z (1 2 3)` becomes `POINT(1 2 3)`, and an absent Z before M becomes `NULL`.
-
-# Appendix B. Differences from the Debezium Type Model (Informative)
-
-"A generalized relational datatype system for Debezium" (October 15, 2026) is a design proposal inside Debezium. It is not an adopted API. This document borrows from it where the definitions match, so that a Debezium-to-OpenCDC mapping stays close to identity if Debezium adopts it. Similar names with different meanings are not interoperability, so this appendix writes down each difference.
-
-| Aspect | Debezium proposal | This document |
-|---|---|---|
-| Families | 20, including `opaque` | 19 plus NATIVE. `opaque` corresponds to NATIVE, with a mandatory codec. |
-| Trait name spelling | `bitWidth`, `componentSet` (camelCase) | `bit_width`, `component_set` (snake_case), to match `source_type` and `native_type`. Meanings are the same where the names correspond. |
-| `componentSet` | A list of components (`YEAR`, `MONTH`, … `SUBSECOND`) | A shorthand of three values: `DATE`, `TIME`, `DATETIME`. Partial dates are not a valid combination. |
-| `temporalKind` | A separate enum (`LOCAL_DATETIME`, `INSTANT`, `DURATION_LIKE_TIME`, …) | Not used. `component_set` and `zone_semantics` cover it; duration-like time is the `interval` family. |
-| `zoneSemantics` | `NONE`, `UTC_INSTANT`, `OFFSET_RETAINED`, `NAMED_ZONE_RETAINED`, `SESSION_LOCAL` | Adopted with the same five values. |
-| `resolution` | Rational | Adopted as `{numerator, denominator}` in seconds. |
-| `representationKind` | `FIXED_DECIMAL`, `VARIABLE_DECIMAL`, `BINARY_FLOAT`, `DECIMAL_FLOAT`, `OTHER` | Adopted without `OTHER`. `radix`, `exact`, `significandBits`, `exponentRange` are implied by the kind and `numeric_format`. |
-| Trait knowledge states (known, unknown, conditional) | Part of the descriptor | Excluded. A producer that does not know a domain trait cannot emit the column under that family (P-TYPE-2). |
-| Capture status (documented, conditional, unsupported) | Central | Off the wire. A mapping does not imply capture; capture limitations are reported through the Specification. |
-| Namespaced vendor traits (`mysql:allowZeroDate`) | Allowed | Not allowed as traits. The flag is `zero_date`; engine-specific behavior goes in `attributes` with an engine prefix. |
-| Transport mapping | Kafka Connect primitives | Bindings per serialization (8). JSON first. |
-| Value grammars | None | The base value forms (6) are this document's contribution. |
-| Fidelity definition | Section 7.6: total, injective encoder with inverse | Adopted as the definition of lossless (2). |
-| Value availability per field | Per-field states | Recognized; reconciling it with `_null_columns` and `_lob_overflow` is a Specification matter. |
-| Intervals | Months, days, seconds units | Component object with the same three parts (6.4). |
-| 64-bit integers | Connect INT64 | Digit string in JSON (6.2.1). This is a change for a Debezium JSON consumer. |
-
-The rows below compare with the Debezium model as shipped in Debezium 3.x. That is the model a consumer migrates from.
-
-| Aspect | Debezium 3.x as shipped | This document |
-|---|---|---|
-| Decimals | `decimal.handling.mode`: Connect `Decimal` bytes, `double`, or `string`; `VariableScaleDecimal` struct | One string form per kind (6.2.2, 6.2.3); no mode. |
-| Temporal values | `time.precision.mode`: epoch integers (`io.debezium.time.*`) or Connect logical types; zoned values as strings | ISO 8601 strings for every combination (6.3); no epoch integers. |
-| Geometry | Struct of WKB bytes and `srid` (`io.debezium.data.geometry.Geometry`) | EWKT string (6.6.1). |
-| `BIT(1)`, `TINYINT(1)`, SQL Server `BIT` | Connect `BOOLEAN` | `bitstring` (PostgreSQL, MySQL `BIT(1)`); `integer` (MySQL `TINYINT(1)`, SQL Server `BIT`). |
-| Unsigned 64-bit | `bigint.unsigned.handling.mode`: `long` (may overflow) or `precise` (Decimal) | Digit string (6.2.1). |
-| `SET` | `io.debezium.data.EnumSet`, comma-joined string | Array of labels (6.2.10). |
-| Binary | `binary.handling.mode`: bytes, base64, base64-url-safe, hex | Standard Base64 with padding (6.10). |
-| Unavailable values | `__debezium_unavailable_value` placeholder | The Specification's `_lob_overflow` for LOB content the engine withheld; the unavailable-value report (Section 2) for a value the producer cannot write. |
 
 # Change Log
 
