@@ -303,7 +303,7 @@ These principles are the foundation for every normative decision in this specifi
 
 ## 2.1 Infrastructure Independence
 
-A conformant OpenCDC stream MUST be fully consumable with only a JSON parser and this specification document. No message broker, schema registry, SDK, or vendor-specific tooling is required to parse, validate, or apply a conformant stream. External infrastructure (message brokers, registries, etc.) is permitted as an optimization but MUST NOT be required for conformance; the registry is one conformant mechanism among several and is never required (Section 2.1).
+A conformant OpenCDC stream MUST be fully consumable with only a JSON parser and this specification document. No message broker, schema registry, SDK, or vendor-specific tooling is required to parse, validate, or apply a conformant stream. External infrastructure (message brokers, registries, etc.) is permitted as an optimization but MUST NOT be required for conformance; the registry is one conformant mechanism among several and is never required.
 
 ## 2.2 Self-Describing Streams
 
@@ -1311,7 +1311,7 @@ Conformant replay MUST satisfy all three of the following:
 
 ## 8.3 Transaction Boundaries
 
-OpenCDC uses three distinct ordering fields serving different scopes. All three may be present simultaneously and MUST NOT be conflated. The CloudEvents sequence field (Section 3.3) provides global session-level total ordering; it is not included in the transaction boundary table below because it operates independently of transaction grouping.
+OpenCDC uses three distinct ordering fields serving different scopes. All three may be present simultaneously and MUST NOT be conflated. The CloudEvents sequence field (Section 3.3) provides session-level total ordering where `ordering_scope: "stream"` is declared (R-POS-0); it is not included in the transaction boundary table below because it operates independently of transaction grouping.
 
 Transaction identity is available at two layers by design:
 
@@ -1617,7 +1617,7 @@ TRUNCATE events carry the standard DML payload envelope fields. primary_key MUST
 truncate_details is an OPTIONAL object within the TRUNCATE event's data payload. It SHOULD be populated by producers when the source engine exposes the relevant execution-time semantics at the capture layer. It MUST be omitted when the producer cannot reliably determine the values -- producers MUST NOT fabricate or assume flag values (P-TRUNC-4). An absent truncate_details is always valid; a truncate_details with incorrect values is a conformance violation.
 
 **cascade**
-Type: true | false | "not_applicable" | "unknown". Whether the TRUNCATE cascaded to related tables via foreign key relationships. true means CASCADE was active and propagated to one or more related tables. false means RESTRICT was active or CASCADE was not specified and did not propagate. "not_applicable" means the source engine does not support cascading truncation as a concept. "unknown" means the engine supports CASCADE but the producer could not determine from the capture layer whether it was active. Engine guidance: PostgreSQL: true (TRUNCATE ... CASCADE) or false (TRUNCATE ... RESTRICT or default -- RESTRICT is the default). Oracle: always "not_applicable". MySQL/MariaDB: always "not_applicable". SQL Server: always "not_applicable". IBM Db2: always "not_applicable".
+Type: true | false | "not_applicable" | "unknown". Whether the TRUNCATE cascaded to related tables via foreign key relationships. true means CASCADE was active and propagated to one or more related tables. false means RESTRICT was active or CASCADE was not specified and did not propagate. "not_applicable" means the source engine does not support cascading truncation as a concept. "unknown" means the engine supports CASCADE but the producer could not determine from the capture layer whether it was active. Engine guidance: PostgreSQL: true (TRUNCATE ... CASCADE) or false (TRUNCATE ... RESTRICT or default -- RESTRICT is the default). Oracle: true or false where the capture interface exposes CASCADE (Oracle 12c and later support `TRUNCATE TABLE ... CASCADE`), "unknown" otherwise; never "not_applicable". MySQL/MariaDB: always "not_applicable". SQL Server: always "not_applicable". IBM Db2: always "not_applicable".
 
 **sequence_reset**
 Type: true | false | "not_applicable" | "unknown". Whether the table's identity, auto-increment, or sequence counter was reset as part of this TRUNCATE. true means the counter was reset to its initial value. false means the counter was preserved. "not_applicable" means the source engine has no table-attached identity or sequence concept (sequences are independent objects, not column properties). "unknown" means the engine supports identity reset but the producer could not determine the actual behavior. DISAMBIGUATION: This field reuses the name sequence_reset that also appears in HEARTBEAT events (Section 10.1). These are DISTINCT concepts: HEARTBEAT.sequence_reset signals a discontinuity in the CloudEvents stream-level sequence counter; truncate_details.sequence_reset signals a reset of the source table's identity or auto-increment column counter. Implementations MUST NOT conflate these two fields. Engine guidance: PostgreSQL: true (TRUNCATE ... RESTART IDENTITY) or false (TRUNCATE ... CONTINUE IDENTITY or default -- CONTINUE IDENTITY is the default). MySQL/MariaDB: always true -- MySQL TRUNCATE always resets AUTO_INCREMENT to the column's defined start value; there is no option to suppress this. Oracle: always "not_applicable" -- sequences are independent schema objects with no connection to TRUNCATE TABLE. SQL Server: false -- TRUNCATE TABLE does not reset IDENTITY columns and there is no option to trigger a reset via TRUNCATE. IBM Db2: false -- TRUNCATE TABLE does not reset GENERATED ALWAYS or GENERATED BY DEFAULT identity column values.
@@ -1703,7 +1703,7 @@ When `session_aware` is false, the producer cannot detect consumer connections; 
 
 #### Sessionless and Multi-Channel Delivery
 
-When session_aware is false, the producer emits STREAM_METADATA as an ordinary event in its sequence; it cannot deliver it per-session. How STREAM_METADATA is then made discoverable to consumers -- via a control channel, transport metadata (e.g., an object-storage manifest), or as the first record per channel -- is a delivery-layer concern, defined per transport in binding documents and illustrated informatively in Appendix B. The producer's payload-level obligations are: emit STREAM_METADATA at stream start and re-emit it whenever stream configuration changes (tables added or removed, schema delivery mode changed), with identical content regardless of how the delivery layer surfaces it. (Consumers read STREAM_METADATA before processing data events; see Appendix A.1, and for Kafka transports, Appendix B.4.)
+When session_aware is false, the producer emits STREAM_METADATA as an ordinary event in its sequence; it cannot deliver it per-session. How STREAM_METADATA is then made discoverable to consumers -- via a control channel, transport metadata (e.g., an object-storage manifest), or as the first record per channel -- is a delivery-layer concern, defined per transport in binding documents and illustrated informatively in Appendix B. The producer's payload-level obligations are: emit STREAM_METADATA at stream start -- every producer start counts as a stream start -- and re-emit it whenever stream configuration changes (tables added or removed, including tables discovered by a pattern-based capture configuration; schema delivery mode changed), with identical content regardless of how the delivery layer surfaces it. (Consumers read STREAM_METADATA before processing data events; see Appendix A.1, and for Kafka transports, Appendix B.4.)
 
 ## 10.5 TRX_COMMIT (Transaction Completeness Marker)
 
@@ -1858,7 +1858,7 @@ This section states the security floor for an OpenCDC deployment and defers the 
 
 # 15. Operational Modes
 
-OpenCDC events may be used in two distinct operational modes that have different requirements for durability, replay, and data loss tolerance. Implementations MUST declare which mode(s) they support. A single deployment MAY operate in both modes simultaneously for different consumer types.
+OpenCDC events may be used in two distinct operational modes that have different requirements for durability, replay, and data loss tolerance. Implementations MUST document which mode(s) they support. A single deployment MAY operate in both modes simultaneously for different consumer types.
 
 > Consumer-side obligations for Durable and Ephemeral modes (resume-position persistence, idempotent apply, gap detection, schema-before-decode, gap tolerance) are specified as non-normative service-level guidance in Appendix A.7/A.6/A.4/A.2/A.11.
 
@@ -1901,7 +1901,7 @@ Even in Ephemeral Mode, where data loss is acceptable, schema delivery (OBJECT_M
 
 # 16. Implementation Safety Notes
 
-The production-deployment best practices formerly recorded here (schema-mismatch logging, ordering-gap detection, replay consistency checks, sequence-continuity monitoring, HEARTBEAT-lag monitoring, duplicate-rate tracking, and type-decode error isolation) are operational guidance for implementers rather than producer conformance requirements. They are collected, together with the consumer service-level guidance, in Appendix A.8 (Implementation Safety & Monitoring Notes).
+The production-deployment best practices formerly recorded here (schema-mismatch logging, ordering-gap detection, replay consistency checks, sequence-continuity monitoring, HEARTBEAT-lag monitoring, duplicate-rate tracking, and type-decode error isolation) are operational guidance for implementers rather than producer conformance requirements. They are collected, together with the consumer service-level guidance, in Appendix A.11 (Service levels, operational modes, and monitoring).
 
 # 17. Normative Summary
 
@@ -2238,7 +2238,7 @@ The deliberate design decisions behind this specification -- what was adopted, w
 
 # 19. Conformance
 
-Conformance is **capability-scoped and self-asserted.** An implementation is a conforming OpenCDC producer if it satisfies every producer requirement in the Normative Summary (Section 17) **that applies to the capabilities it declares** in STREAM_METADATA -- not necessarily every rule in the document. Many MUST rules are conditional: a rule qualified (SC)/(MC) applies only to the corresponding profile (Section 2.2a), a rule conditioned on `session_aware` applies only when the declared value matches, the transaction-marker rules (P-TRX-*) bind only a producer that declares `transaction_interleaving: "possible"`, the loop-suppression rule (P-LOOP-1, qualifier BD) binds only a producer that declares `bidirectional: true`, and the DDL-coverage rules P-DDL-1 and P-DDL-2 bind only a producer that declares `ddl_capture` other than `"none"` (P-DDL-3, a SHOULD, applies in the converse case). A single-channel producer that never emits markers and a fully-featured multi-channel producer can therefore both be conformant to different, declared bars. A producer SHOULD state the capabilities it claims (its declared `ordering_scope`, `transaction_interleaving`, `transaction_boundaries`, `schema_delivery`, `session_aware`, `sequence_continuity`, `bidirectional`, `ddl_capture`) alongside any conformance claim -- the profile shorthand *single*/*multi* (Section 2.2a) is acceptable in claims -- so the claim is unambiguous. A distinction applies between what software *implements* and what a deployment *conforms to*: a product claims it implements OpenCDC (emits valid events, declares constrained axes truthfully within their source and deployment constraints, correctly carries and validates configuration-supplied values, defaults conservatively); only an operating deployment claims its stream is conformant (the delivered guarantees actually hold).
+Conformance is **capability-scoped and self-asserted.** An implementation is a conforming OpenCDC producer if it satisfies every producer requirement in the Normative Summary (Section 17) **that applies to the capabilities it declares** in STREAM_METADATA -- not necessarily every rule in the document. Many MUST rules are conditional: a rule carrying a topology suffix (-MC) applies only to the corresponding profile (Section 2.2a), a rule conditioned on `session_aware` applies only when the declared value matches, the transaction-marker rules (P-TRX-*) bind only a producer that declares `transaction_interleaving: "possible"`, the loop-suppression rule (P-LOOP-1, qualifier BD) binds only a producer that declares `bidirectional: true`, and the DDL-coverage rules P-DDL-1 and P-DDL-2 bind only a producer that declares `ddl_capture` other than `"none"` (P-DDL-3, a SHOULD, applies in the converse case). A single-channel producer that never emits markers and a fully-featured multi-channel producer can therefore both be conformant to different, declared bars. A producer SHOULD state the capabilities it claims (its declared `ordering_scope`, `transaction_interleaving`, `transaction_boundaries`, `schema_delivery`, `session_aware`, `sequence_continuity`, `bidirectional`, `ddl_capture`) alongside any conformance claim -- the profile shorthand *single*/*multi* (Section 2.2a) is acceptable in claims -- so the claim is unambiguous. A distinction applies between what software *implements* and what a deployment *conforms to*: a product claims it implements OpenCDC (emits valid events, declares constrained axes truthfully within their source and deployment constraints, correctly carries and validates configuration-supplied values, defaults conservatively); only an operating deployment claims its stream is conformant (the delivered guarantees actually hold).
 
 Conformance is self-asserted in this revision. A working-group **Conformance Test Suite** that specifies exactly which parts of the specification a given producer satisfies is anticipated as future work; until it exists, the declared-capability statement above is the honest expression of what "conformant" means for a particular implementation.
 
@@ -2322,7 +2322,7 @@ The following scenarios are the minimum test suite for conformance validation. E
 
 - **T-03**
   - Scenario: Replay after outage (resume from saved cdcpos)
-  - Pass Criterion: Consumer reconnects, receives STREAM_METADATA + current OBJECT_METADATA (SC) or resolves schema via declared mechanism (MC), then resumes data from saved position with no missed or duplicate events applied
+  - Pass Criterion: Consumer reconnects, receives STREAM_METADATA + current OBJECT_METADATA (SC) or resolves schema via declared mechanism (MC), then resumes data from saved position with no missed events; duplicates are discarded
   - Use Case: Interoperability; Durability; Replay and reconnect
 
 - **T-04**
@@ -2382,10 +2382,9 @@ The following scenarios are the minimum test suite for conformance validation. E
 
 - **T-14**
   - Scenario: TRUNCATE -- non-transactional (Oracle/MySQL) synthetic cdcxid
-  - Pass Criterion: Producer emits an Oracle TRUNCATE event with a synthetic cdcxid (not a real Oracle transaction ID). The synthetic cdcxid is stable: replay of the same event carries the same synthetic cdcxid. Consumer deduplicates on (source, id) correctly, not on cdcxid alone. truncate_details shows cascade: "not_applicable" and sequence_reset: "not_applicable".
+  - Pass Criterion: Producer emits an Oracle TRUNCATE event with a synthetic cdcxid (not a real Oracle transaction ID). The synthetic cdcxid is stable: replay of the same event carries the same synthetic cdcxid. Consumer deduplicates on (source, id) correctly, not on cdcxid alone. truncate_details shows cascade: true, false or "unknown" (never "not_applicable") and sequence_reset: "not_applicable".
   - Use Case: Data fidelity; Non-transactional TRUNCATE identity
 
-OpenCDC Specification -- Draft v0.7.0 -- June 2026 -- OpenCDC Working Group
 
 
 - **T-15** (axis cell: `stream` + `none` -- the *single* profile)
@@ -2494,7 +2493,7 @@ Validation / closed-world:
 
 - **C-ORD-2:** within a transaction, apply events in `cdctxorder` sequence (0,1,2,...). Out-of-order application within a transaction is incorrect.
 - Cross-table / total order: the CloudEvents **`sequence`** field yields a global order only where the producer declares `ordering_scope: "stream"` and you receive that sequence as one ordered channel (A.1, Section 3.3); otherwise you SHOULD NOT attempt a cross-channel order from `sequence` values *(C-SEQ-1: use `cdctxorder` for intra-transaction order, `sequence` for cross-table total order, `(pos.lsn, pos.lsn_offset)` for replay positioning)*.
-- **Single channel (C-ORD-3):** apply transactions in stream order; if the transport rebalances and delivers out of order, buffer and reorder before applying.
+- **Single channel (C-ORD-3):** apply transactions in stream order; out-of-order delivery within a channel is a producer or delivery-layer conformance failure (most commonly non-idempotent retry reordering) and SHOULD be surfaced as an error.
 - **Multi-channel (C-ORD-3-MC):** assemble each transaction by grouping events with matching `cdcxid` across all subscribed channels; apply intra-transaction events in `cdctxorder`. Cross-transaction order across independent channels is not guaranteed, and `sequence` does not supply it across independently delivered channels (Section 3.3); design for per-channel order plus `cdcxid` correlation.
 - **C-KEY-1 (per-row key):** key rows on the table's **`primary_key`** (from OBJECT_METADATA), not on `partitionkey`. `partitionkey`, when present, is an advisory routing hint you MAY ignore. Where the source exposes no primary key, fall back to the full row image for identity and the CloudEvents `sequence` for ordering.
 - **Gap handling:** `cdctxorder` gaps are a producer error; on detecting a gap, surface an error and do not apply subsequent events until resolved.
