@@ -124,7 +124,7 @@ Orthogonal to the ordering axes, a producer may or may not have **session awaren
 
 The following documents are normative references to this specification. Conformance with this specification requires conformance with the applicable sections of each normative reference.
 
-- **OpenCDC Type System Proposal v0.2 (May 2026)**
+- **OpenCDC Type System Proposal v0.2.1 (November 2026)**
   - Role: Normative. Defines the two-layer type system (source_type + logical_type), the canonical type vocabulary of ~60 named types, wire encoding rules for all types, and six type-system normative rules. The OBJECT_METADATA column descriptor structure defined in Section 4.4 of the Type System Proposal is normative for this specification.
 
 - **CloudEvents Specification v1.1 cloudevents.io**
@@ -155,7 +155,7 @@ OpenCDC is defined across three documents with distinct roles. Understanding whi
   - Is Authoritative For: Event structure, field names, ordering guarantees, producer/consumer contracts, lifecycle events, idempotency, replay semantics, loop prevention, security, operational modes
   - Role: Normative
 
-- **OpenCDC Type System Proposal v0.2**
+- **OpenCDC Type System Proposal v0.2.1**
   - Is Authoritative For: All logical_type definitions, source_type-to-logical_type mapping rules, wire encoding rules per type, type-specific parameters, special value handling (NaN, Infinity, DECFLOAT, LOB overflow encoding)
   - Role: Normative
 

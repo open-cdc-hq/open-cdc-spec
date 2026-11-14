@@ -12,8 +12,8 @@ documents:
     date: 2026-07
     tracks_wire: "0.3"
   type_system:
-    version: "0.2"
-    date: 2026-05
+    version: "0.2.1"
+    date: 2026-11
     normative_for: specification
   architecture_decision_record:
     version: "0.2"
