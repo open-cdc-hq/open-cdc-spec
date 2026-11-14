@@ -50,7 +50,7 @@ requirements:
   - '6.2'
 - id: P-TYPE-2
   level: MUST
-  requirement: logical_type from OpenCDC canonical vocabulary
+  requirement: logical_type from OpenCDC canonical vocabulary; mapping deterministic within a producer configuration
   who: Producer
   sections:
   - '6.2'
@@ -62,7 +62,7 @@ requirements:
   - '6.2'
 - id: P-TYPE-4
   level: MUST
-  requirement: No silent truncation or precision loss
+  requirement: No silent truncation or precision loss (error, _lob_overflow, or exclusion from the emission schema)
   who: Producer
   sections:
   - '6.2'

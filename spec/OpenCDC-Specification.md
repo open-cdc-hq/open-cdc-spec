@@ -920,7 +920,7 @@ Table identity MUST be split into discrete fields to accommodate heterogeneous s
 
 - **changed_columns**
   - Required: OPTIONAL
-  - Description: Array of column names that changed in an UPDATE. When present, before and after MUST contain only these columns (plus primary key columns). When absent, before and after MUST contain all columns. See Section 5.4.
+  - Description: Array of column names that changed in an UPDATE. When present, before and after MUST contain only these columns (plus primary key columns). When absent, before and after MUST contain all columns of the emission schema. See Section 5.4.
 
 - **(absent column rule)**
   - Required: --
@@ -932,7 +932,7 @@ Table identity MUST be split into discrete fields to accommodate heterogeneous s
 
 - **_lob_overflow**
   - Required: MUST
-  - Description: Array of column names whose LOB content was not captured. MUST be present even if empty. Columns listed here have JSON null as their value but are NOT actually null -- the content was not available to the capture layer.
+  - Description: Array of column names whose value was not captured or delivered in this event (for example LOB overflow, an unchanged out-of-line value such as an unchanged TOASTed column, a value the source did not log, or an oversize value). MUST be present even if empty. Columns listed here have JSON null as their value but are NOT actually null -- the content was not available to the capture layer. On an UPDATE `after` image, a listed column means the target retains its existing value; on INSERT or snapshot.READ it means the value is unavailable from the stream. No vendor sentinel value appears in place of a listed column. A producer whose values may reflect a later source state than the event (for example a value fetched from the source table at capture time) SHOULD document that.
 
 - **pos**
   - Required: MUST
@@ -1027,7 +1027,7 @@ Full row before/after images are expensive for wide tables, especially those wit
 ```
 
 **Partial Image Consumer Rule -- Including LOB Columns**
-When changed_columns is present: columns absent from before/after are UNCHANGED regardless of their type -- including LOB columns. A LOB column that is absent from the payload MUST be interpreted as unchanged, not as overflowed or null. Absent columns carry no value to infer. (Consumer decode behavior for absent/null/overflow is specified in Appendix A.3.) LOB overflow (_lob_overflow) applies only to columns that ARE explicitly present in the payload with a null value. A column can only appear in _lob_overflow if it is present in before or after. An absent column is simply not part of this event -- its LOB status is irrelevant. Summary of null semantics for any column: (1) Present in payload + in _null_columns -> genuinely null in source. (2) Present in payload + in _lob_overflow -> content not captured (not null). (3) Absent from payload + in changed_columns -> producer error (changed columns MUST be present). (4) Absent from payload + not in changed_columns -> unchanged, ignore. When changed_columns is absent or null: before and after MUST contain all columns. Absence of any column from a full image is a producer conformance violation.
+When changed_columns is present: columns absent from before/after are UNCHANGED regardless of their type -- including LOB columns. A LOB column that is absent from the payload MUST be interpreted as unchanged, not as overflowed or null. Absent columns carry no value to infer. (Consumer decode behavior for absent/null/overflow is specified in Appendix A.3.) LOB overflow (_lob_overflow) applies only to columns that ARE explicitly present in the payload with a null value. A column can only appear in _lob_overflow if it is present in before or after. An absent column is simply not part of this event -- its LOB status is irrelevant. Summary of null semantics for any column: (1) Present in payload + in _null_columns -> genuinely null in source. (2) Present in payload + in _lob_overflow -> content not captured (not null). (3) Absent from payload + in changed_columns -> producer error (changed columns MUST be present). (4) Absent from payload + not in changed_columns -> unchanged, ignore. When changed_columns is absent or null: before and after MUST contain every column of the table's emission schema (Section 4.1). Absence of an emission-schema column from a full image is a producer conformance violation; a source column outside the emission schema is not part of the event.
 
 ## 5.5 Complete DML Payload Examples
 
@@ -1147,11 +1147,11 @@ The following ordering obligations are common to all topologies:
 
 - P-TYPE-1: Producers MUST populate source_type with the verbatim DDL type declaration from the source engine. Normalization, aliasing, or expansion of source types is non-conformant.
 
-- P-TYPE-2: Producers MUST populate logical_type with a value from the OpenCDC canonical vocabulary (Type System Proposal v0.2). The mapping from source_type to logical_type MUST be deterministic: the same source_type from the same engine always produces the same logical_type.
+- P-TYPE-2: Producers MUST populate logical_type with a value from the OpenCDC canonical vocabulary (Type System Proposal v0.2). The mapping from source_type to logical_type MUST be deterministic within a producer configuration: the same source_type from the same engine, under the same configuration, always produces the same logical_type. Any configuration that selects a lossy mapping MUST be reflected in logical_type and parameters.
 
 - P-TYPE-3: Producers MUST encode DML column values per the wire encoding rules for the column's logical_type. Encoding in a format inconsistent with the declared logical_type is a conformance violation.
 
-- P-TYPE-4: Producers MUST NOT silently truncate, round, or reduce the precision of any value. If a value cannot be captured at full source precision, the producer MUST emit an error or omit the column with explicit flagging -- not silently reduce precision.
+- P-TYPE-4: Producers MUST NOT silently truncate, round, or reduce the precision of any value. If a value cannot be captured at full source precision, the producer MUST emit an error, list the column in `_lob_overflow` for that event, or exclude the column from the table's emission schema (an emission-schema change, Section 4.1) -- never silently reduce precision.
 
 ## 6.3 LOB Handling Obligations
 
@@ -1932,7 +1932,7 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Section: 6.2
 
 - **P-TYPE-2**
-  - Requirement: logical_type from OpenCDC canonical vocabulary
+  - Requirement: logical_type from OpenCDC canonical vocabulary; mapping deterministic within a producer configuration
   - Who: Producer
   - Section: 6.2
 
@@ -1942,7 +1942,7 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Section: 6.2
 
 - **P-TYPE-4**
-  - Requirement: No silent truncation or precision loss
+  - Requirement: No silent truncation or precision loss (error, _lob_overflow, or exclusion from the emission schema)
   - Who: Producer
   - Section: 6.2
 
