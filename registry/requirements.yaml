@@ -627,6 +627,37 @@ requirements:
   who: Consumer
   sections:
   - A.10
+- id: R-POS-8
+  level: MUST
+  requirement: Resume unit is the transaction; a re-emitted prefix keeps original ids, cdctxorder, cdcxid and TRX_COMMIT event_count
+  who: Producer
+  sections:
+  - '8.2'
+- id: R-POS-9
+  level: MUST
+  requirement: Unavailable resume position is surfaced as an error; never silently resume from a later position
+  who: Producer
+  sections:
+  - '8.2'
+  - '8.4.3'
+- id: R-POS-10
+  level: MUST NOT
+  requirement: No release or acknowledgement of source log past events not yet durably handed to the delivery layer
+  who: Producer
+  sections:
+  - '8.2'
+- id: R-POS-11
+  level: MUST
+  requirement: Replay renders under the current schema only where lossless; id, position, cdcxid and cdctxorder unchanged
+  who: Producer
+  sections:
+  - '8.2'
+- id: P-STATE-1
+  level: MUST
+  requirement: Persist or deterministically re-derive replay-stable producer state across restart; loss handled per R-POS-9
+  who: Producer
+  sections:
+  - '8.2'
 matrix:
 - capability: Schema delivery before first DML
   producer: MUST
@@ -939,3 +970,44 @@ matrix:
   - '10.3'
   req_ids:
   - P-SNAP-1
+- capability: Resume at transaction granularity with original ids and event_count
+  producer: MUST
+  consumer: null
+  delivery_layer: null
+  sections:
+  - '8.2'
+  req_ids:
+  - R-POS-8
+- capability: Unavailable resume position surfaced as an error, never silently skipped
+  producer: MUST
+  consumer: null
+  delivery_layer: null
+  sections:
+  - '8.2'
+  - '8.4.3'
+  req_ids:
+  - R-POS-9
+- capability: No source-log release before delivery-layer acknowledgement
+  producer: MUST
+  consumer: null
+  delivery_layer: null
+  sections:
+  - '8.2'
+  req_ids:
+  - R-POS-10
+- capability: Replay rendering lossless for the replayed position
+  producer: MUST
+  consumer: null
+  delivery_layer: null
+  sections:
+  - '8.2'
+  req_ids:
+  - R-POS-11
+- capability: Producer durable state persisted or re-derivable across restart
+  producer: MUST
+  consumer: null
+  delivery_layer: null
+  sections:
+  - '8.2'
+  req_ids:
+  - P-STATE-1

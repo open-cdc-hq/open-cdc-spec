@@ -479,7 +479,7 @@ OpenCDC adopts CloudEvents v1.1 as its mandatory envelope specification. Every O
 
 - **time**
   - Required: MUST
-  - Value / Constraint: RFC 3339 timestamp of the source commit. MUST be the database commit time, not the capture or publish time.
+  - Value / Constraint: RFC 3339 timestamp of the source commit. MUST be the source commit time where the capture interface exposes it; otherwise it MUST be the best source-side timestamp available, and MUST NOT be capture or publish wall-clock time. A producer SHOULD document which it supplies.
 
 - **datacontenttype**
   - Required: MUST
@@ -1242,15 +1242,15 @@ Every DML, DDL, and HEARTBEAT event MUST include a pos object in its data payloa
 
 - **lsn**
   - Required: MUST
-  - Description: Hex-encoded log sequence number normalized to a comparable string. MUST be monotonically increasing within a session. Across session boundaries and after a declared reset, comparability is governed by sequence_continuity (Section 8.4): under "guaranteed" values remain comparable across sessions; under "best_effort" or "reset" a new baseline is established at the boundary and values MUST NOT be compared across it. Used for ordering and deduplication.
+  - Description: Hex-encoded log sequence number normalized to a comparable string: the position at which the event's transaction committed (for example the commit LSN, commit SCN, or the binlog position of the commit record). MUST be monotonically increasing within a session. Across session boundaries and after a declared reset, comparability is governed by sequence_continuity (Section 8.4): under "guaranteed" values remain comparable across sessions; under "best_effort" or "reset" a new baseline is established at the boundary and values MUST NOT be compared across it. Used for ordering and deduplication.
 
 - **source_timestamp**
   - Required: MUST
-  - Description: ISO 8601 timestamp of the source commit. MUST be the database commit time, not capture time. Matches the CloudEvents time field.
+  - Description: ISO 8601 timestamp of the source commit. Matches the CloudEvents time field (Section 3.1).
 
 - **lsn_offset**
   - Required: MUST
-  - Description: Non-negative integer. Disambiguates multiple events committed at the same LSN position -- for example, multiple row changes within a single database transaction that share one log record. lsn_offset is 0-based and monotonically increasing within a given lsn value. (pos.lsn, pos.lsn_offset) together form a total order for all events at the payload level. DISTINCT from the CloudEvents sequence envelope field -- see Section 3.3 for disambiguation.
+  - Description: Non-negative integer. Disambiguates multiple events committed at the same LSN position -- for example, multiple row changes within a single database transaction that share one log record. lsn_offset is 0-based and monotonically increasing within a given lsn value: it is the event's ordinal within its transaction, and it also disambiguates distinct transactions that share an lsn (for example equal commit SCNs across Oracle RAC redo threads). (pos.lsn, pos.lsn_offset) together form a total order for all events at the payload level. DISTINCT from the CloudEvents sequence envelope field -- see Section 3.3 for disambiguation.
 
 - **native_position**
   - Required: SHOULD
@@ -1269,6 +1269,16 @@ The following rules apply to producers in every topology, except where a rule st
 - R-POS-4: Producers MUST guarantee that replay from a saved position produces events in the same order as the original delivery. Event reordering during replay is a conformance violation.
 
 - R-POS-5: At-least-once delivery is the minimum guarantee. Producers MAY emit duplicate events during replay. Consumers handle duplicates per Appendix A.3 (Idempotency).
+
+- R-POS-8 (Resume granularity): The unit of resume is the transaction. A producer MAY resume at the start of the transaction containing the requested position; resuming from any cdcpos within a transaction MAY re-emit that transaction's earlier events (R-POS-5). The re-emitted prefix MUST carry the original ids, cdctxorder values and cdcxid, and the transaction's TRX_COMMIT MUST carry an identical event_count (R-POS-6).
+
+- R-POS-9 (Unavailable resume position): If the position from which emission must resume -- on restart, or for replay within the producer's supported window -- can no longer be read from the source change interface or the producer's own durable store, the producer MUST surface an error and MUST NOT silently resume from a later position. A declared reset (Section 8.4.3, Scenario 6) is the only alternative to stopping.
+
+- R-POS-10 (Source log release): A producer MUST NOT release or acknowledge source log past events not yet durably handed to its delivery layer, where "durably handed" means acknowledged by the delivery layer under the producer's configured acknowledgement mode. In Durable Mode (Section 15.1), the configured acknowledgement mode MUST be one that waits for delivery-layer acknowledgement.
+
+- R-POS-11 (Replay rendering): A replayed event MAY be rendered under the current emission schema only where that is lossless for the replayed position; otherwise the producer renders it under the schema as of that position or surfaces an error. It keeps its id, position, cdcxid and cdctxorder; its payload conforms to the OBJECT_METADATA its dataschema references; captured data is never silently dropped. Under (source, id) deduplication the first-delivered copy is authoritative.
+
+- P-STATE-1 (Producer durable state): A producer MUST persist, or deterministically re-derive, across restart the state needed to honour its replay-stable obligations (position, schema_version high-water marks, synthetic-xid derivation). Loss of this state is handled as an unavailable resume position (R-POS-9).
 
 - R-POS-7 (Schema retrievability at replayable positions) -- Delivery-layer obligation (binding-defined): The OBJECT_METADATA version in effect at any replayable position MUST remain retrievable for the replay window the producer supports. A schema-delivery arrangement whose retention can destroy a schema version while positions governed by it remain replayable is non-conformant. (For control-channel deployments this is typically satisfied by retaining all schema versions -- see Appendix B; superseded versions may be pruned only when no supported replay position requires them.)
 
@@ -2155,6 +2165,31 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Who: Producer
   - Section: 3.3, 6.1
 
+- **R-POS-8**
+  - Requirement: Resume unit is the transaction; a re-emitted prefix keeps original ids, cdctxorder, cdcxid and TRX_COMMIT event_count
+  - Who: Producer
+  - Section: 8.2
+
+- **R-POS-9**
+  - Requirement: Unavailable resume position is surfaced as an error; never silently resume from a later position
+  - Who: Producer
+  - Section: 8.2, 8.4.3
+
+- **R-POS-10**
+  - Requirement: No release or acknowledgement of source log past events not yet durably handed to the delivery layer
+  - Who: Producer
+  - Section: 8.2
+
+- **R-POS-11**
+  - Requirement: Replay renders under the current schema only where lossless; id, position, cdcxid and cdctxorder unchanged
+  - Who: Producer
+  - Section: 8.2
+
+- **P-STATE-1**
+  - Requirement: Persist or deterministically re-derive replay-stable producer state across restart; loss handled per R-POS-9
+  - Who: Producer
+  - Section: 8.2
+
 # 18. Design Decision Record
 
 The deliberate design decisions behind this specification -- what was adopted, what was rejected, and why -- are recorded in the companion OpenCDC Architecture Decision Record (ADR) v0.1 (see Normative References). They are maintained there, in numbered ADR entries, rather than inline, so this document can stay focused on defining the specification itself.
@@ -2222,6 +2257,11 @@ This matrix lists producer (and bilateral) conformance requirements. Consumer-si
 | Replay redelivers a transaction's TRX_COMMIT (stable id, same event_count) | MUST |  |  | 8.2, 10.5 | R-POS-6 |
 | meta.* lifecycle types additive; dml.*/ddl.* vocabularies closed; names not repurposed | MUST |  |  | 2.2a, 3.2 | P-COMPAT-1 |
 | Initial load: SNAPSHOT precedes steady-state DML; completion signaled | MUST |  |  | 10.3 | P-SNAP-1 |
+| Resume at transaction granularity with original ids and event_count | MUST |  |  | 8.2 | R-POS-8 |
+| Unavailable resume position surfaced as an error, never silently skipped | MUST |  |  | 8.2, 8.4.3 | R-POS-9 |
+| No source-log release before delivery-layer acknowledgement | MUST |  |  | 8.2 | R-POS-10 |
+| Replay rendering lossless for the replayed position | MUST |  |  | 8.2 | R-POS-11 |
+| Producer durable state persisted or re-derivable across restart | MUST |  |  | 8.2 | P-STATE-1 |
 
 ## 19.2 Conformance Test Scenarios
 
