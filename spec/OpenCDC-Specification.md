@@ -550,13 +550,7 @@ CDC-specific envelope fields that have no CloudEvents native equivalent are carr
   - Required: SHOULD
   - Description: OPTIONAL routing hint for partitioned transports. Producers are not required to emit it, and consumers MAY ignore it and key on the table's primary key (see Appendix A.4). When present, its semantics by topology are:
 
-    #### Single Channel Stream
-
-    Typically set to the primary key hash of the changed row. When a producer emits partitionkey on a partitioned single-channel transport, it SHOULD assign all events of a transaction (same cdcxid) the same partitionkey value so they remain co-partitioned (P-ORD-6, SHOULD). This is a throughput/ordering convenience, not a correctness requirement: single-channel transaction ordering is guaranteed by the channel's total order (T-NOINTERLEAVE), not by partitionkey.
-
-    #### Multi-Channel / Distributed Topologies
-
-    Set to the primary key hash of the changed row. In multi-channel deployments, events of a single transaction naturally span multiple channels and MAY carry different partitionkey values -- one per changed row. Transaction integrity in this topology is maintained via cdcxid grouping and explicit transaction completeness markers (e.g., TRX_COMMIT), not via partitionkey alignment. The single channel stream constraint that all transaction events share a single partitionkey does NOT apply in multi-channel topologies.
+    When `partitionkey` is emitted for a table with a primary key, it MUST be a deterministic function of (table, primary_key values) only and identical for every event of the same primary key for the lifetime of the stream (P-ORD-6). It MUST NOT be co-partitioned by `cdcxid`: events of one transaction that touch different keys MAY carry different `partitionkey` values. Transaction integrity is maintained by `cdcxid` grouping and transaction completeness markers (TRX_COMMIT), not by `partitionkey` alignment. Where `partitionkey` is emitted, SNAPSHOT events carry the same value as DML for the same key. Keying for tables without a primary key, and how a transport maps `partitionkey` to its own record key, are transport binding concerns (Section 12).
 
 - **sequence**
   - Type: String
@@ -1137,7 +1131,7 @@ The following ordering obligations are common to all topologies:
 
 - P-ORD-1: Producers MUST emit events in source commit order within the single captured stream: events are emitted in the order the source engine committed their transactions, and in cdctxorder sequence within each transaction; where `transaction_interleaving: "none"` is declared they are grouped by transaction, and where `"possible"` is declared events of different transactions MAY be interleaved. Commit order -- not the physical order of records in the source log, which interleaves concurrent transactions -- is the order every log-based capture interface exposes and the only order under which T-NOINTERLEAVE is satisfiable.
 
-- P-ORD-6 (SHOULD -- Partition Alignment convenience): When a producer emits partitionkey on a partitioned single-channel transport, it SHOULD assign all events of a transaction (same cdcxid) the same partitionkey value so they remain co-partitioned. This is a throughput/ordering convenience, not a correctness requirement: single-channel transaction ordering is guaranteed by the emission channel's total order and T-NOINTERLEAVE. Consumers MAY ignore partitionkey (Appendix A.4).
+- P-ORD-6: When a producer emits partitionkey, it MUST follow Section 3.3: a deterministic function of (table, primary_key values) only, never co-partitioned by cdcxid. Consumers MAY ignore partitionkey (Appendix A.4).
 
 - T-NOINTERLEAVE: Where `transaction_interleaving: "none"` is declared, events from different transactions MUST NOT be interleaved within an emission channel (stream-wide under `ordering_scope: "stream"`). All events of transaction cdcxid=A MUST be delivered before any event of transaction cdcxid=B, for any A that commits before B. Where `"possible"` is declared, this rule does not bind and P-TRX-1 applies.
 
@@ -2155,6 +2149,11 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Requirement: meta.* lifecycle types are additive; producers MUST NOT repurpose existing type names; the dml.* and ddl.* operation vocabularies are closed and extended only by specification revision
   - Who: Producer
   - Section: 2.2a, 3.2
+
+- **P-ORD-6**
+  - Requirement: When emitted, partitionkey is a deterministic function of (table, primary key) only; never co-partitioned by cdcxid
+  - Who: Producer
+  - Section: 3.3, 6.1
 
 # 18. Design Decision Record
 

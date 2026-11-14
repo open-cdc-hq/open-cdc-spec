@@ -384,8 +384,8 @@ requirements:
   - 2.2a
   - '3.2'
 - id: P-ORD-6
-  level: SHOULD
-  requirement: All events of same transaction SHOULD share same partitionkey (advisory routing hint; not the ordering anchor)
+  level: MUST
+  requirement: When emitted, partitionkey is a deterministic function of (table, primary key) only; never co-partitioned by cdcxid
   who: Producer
   sections:
   - '3.3'
