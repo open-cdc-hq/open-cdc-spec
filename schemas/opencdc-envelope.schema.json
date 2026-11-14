@@ -60,6 +60,12 @@
     },
     "cdcsourceid": {
       "type": "string"
+    },
+    "cdctraceid": {
+      "type": "string"
+    },
+    "cdccorrelationid": {
+      "type": "string"
     }
   },
   "required": [

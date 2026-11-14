@@ -1797,11 +1797,11 @@ OpenCDC defines optional fields to support distributed tracing and event correla
 
 ## 13.1 Trace Context
 
-- **trace_id**
+- **cdctraceid**
   - Location: CloudEvents extension attribute
   - Description: W3C Trace Context trace ID (hex string). Propagated unchanged from the source capture event through every processing stage. Enables end-to-end tracing from database commit to target apply in distributed tracing systems (Jaeger, Zipkin, OpenTelemetry).
 
-- **correlation_id**
+- **cdccorrelationid**
   - Location: CloudEvents extension attribute or data payload
   - Description: Business-level correlation identifier. Set by the application that originated the database change (e.g., an order ID, a session ID). Propagated from the source database transaction metadata when available.
 
@@ -1819,8 +1819,8 @@ OpenCDC defines optional fields to support distributed tracing and event correla
   "cdcspecversion": "0.3",
   "cdcxid":         "txn-001",
   "cdcpos":         "000001:0",
-  "trace_id":      "4bf92f3577b34da6a3ce929d0e0e4736",   // W3C trace context
-  "correlationid":  "order-cart-88291",                   // business correlation
+  "cdctraceid":       "4bf92f3577b34da6a3ce929d0e0e4736",   // W3C trace context
+  "cdccorrelationid": "order-cart-88291",                   // business correlation
   "data": { ... }
 }
 ```
