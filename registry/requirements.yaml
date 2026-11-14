@@ -180,7 +180,7 @@ requirements:
   - '14.1'
 - id: P-SNAP-1
   level: MUST
-  requirement: 'Initial load: SNAPSHOT events for a table precede its first steady-state DML; producer signals initial-load completion (snapshot_complete or first DML cdcxid) and declares the initial-load phase in STREAM_METADATA'
+  requirement: 'Initial load: SNAPSHOT events for a table precede its first steady-state DML; producer signals completion with meta.SNAPSHOT_END and declares `initial_load` in STREAM_METADATA'
   who: Producer
   sections:
   - '10.3'

@@ -514,6 +514,8 @@ com.{org}.cdc.meta.TRX_COMMIT         # transaction completeness marker (Section
 #   com.{org}.cdc.meta.TRX_BEGIN, com.{org}.cdc.meta.TRX_ABORT
 # Snapshot (initial load)
 com.{org}.cdc.snapshot.READ           # full row at snapshot time; before=null
+com.{org}.cdc.meta.SNAPSHOT_BEGIN     # per-table initial-load start marker (Section 10.3)
+com.{org}.cdc.meta.SNAPSHOT_END       # per-table initial-load completion marker (Section 10.3)
 ```
 
 The `dml.*` and `ddl.*` operation vocabularies above are closed (P-COMPAT-1, Section 2.2a): these are the only operation type names a conformant producer may emit, and new values arrive only by specification revision. Producers classify source DDL operations onto `CREATE`/`ALTER`/`DROP` according to the source capture interface's representation of the operation, not the user's SQL text -- a rename reported by the capture interface as an in-place alteration classifies as `ALTER`; one reported as drop-and-recreate classifies as `DROP` followed by `CREATE`. An unrecognized `ddl.*` or `dml.*` type therefore indicates a stream produced under a later specification revision (consumer handling: C-COMPAT-1, Appendix A.8).
@@ -1626,7 +1628,9 @@ The truncate_details object is a defined, versioned payload field in the OpenCDC
 
 Initial load events use type com.{org}.cdc.snapshot.READ. They carry the same before/after structure as DML events: before MUST be null; after MUST contain the full row. SNAPSHOT events MUST NOT be mixed with DML events in the same transaction group -- they MUST use a distinct cdcxid value (e.g., "snapshot:{table}:{batch_id}").
 
-Initial-load ordering and completion (P-SNAP-1): for any table whose stream begins with an initial load, the producer MUST deliver that table's SNAPSHOT events before the first steady-state DML event for the same table, and MUST signal initial-load completion for the table -- either by emitting a final SNAPSHOT event carrying a `snapshot_complete: true` marker in its payload, or by the transition to the first DML `cdcxid` for that table. The producer MUST declare in STREAM_METADATA whether the stream includes an initial-load phase. Steady-state ordering guarantees (Section 8) apply only from the first post-snapshot DML event onward. (Consumer handling of the snapshot-to-steady-state transition is described in Appendix A.8.)
+Initial-load ordering and completion (P-SNAP-1): for any table whose stream begins with an initial load, the producer MUST deliver that table's SNAPSHOT events before the first steady-state DML event for the same table, and MUST signal initial-load completion for the table by emitting `meta.SNAPSHOT_END`. Per table, the producer emits `meta.SNAPSHOT_BEGIN` and `meta.SNAPSHOT_END`, each carrying the table identity, `cdcxid` and `cdcpos`, on every emission channel that carried that table's SNAPSHOT events; they are markers for the purposes of P-RET-1, and their availability MUST be at least that of the SNAPSHOT events they bracket. The producer MUST declare in STREAM_METADATA whether the stream includes an initial-load phase, using `initial_load`: `"none"` | `"at_start"` (absent = `"none"`); `"none"` means no SNAPSHOT events are emitted, and OBJECT_METADATA obligations (Section 4.1) are unaffected by either value. The value set is extensible; on-demand, incremental and mid-stream modes are reserved and not specified in this revision, and a consumer that sees an unrecognised value treats the snapshot strategy as unknown. The producer MUST record a source position at or before the snapshot's consistent point (the consistency anchor) so that streaming overlaps the load and leaves no gap; DML overlapping the load window is legal and is applied idempotently. Steady-state ordering guarantees (Section 8) apply only from the first post-snapshot DML event onward. (Consumer handling of the snapshot-to-steady-state transition is described in Appendix A.8.)
+
+Initial-load start and impact: an initial load starts only by explicit configuration or operator action. The configuration MAY be a documented default that applies only on the first start of a stream, when the producer has never held resume state for it. Where a saved position exists but is unavailable, or state has been lost, R-POS-9 and the declared reset path (Section 8.4.3, Scenario 6) govern, and no initial load starts by default. A producer performing an initial load SHOULD bound its read impact (chunked, keyed, resumable reads; a configurable rate limit) and SHOULD NOT hold one long-lived source snapshot for the load's duration where the source permits chunked reads. Where partitionkey is emitted, SNAPSHOT events carry the same value as DML for the same key (Section 3.3). `snapshot.READ` emitted outside an initial-load phase is not governed by P-SNAP-1; this revision defines no conformance for it and does not forbid it.
 
 ## 10.4 STREAM_METADATA
 
@@ -1653,6 +1657,8 @@ The following fields have defined defaults and MAY be omitted; absence MUST be i
 - **transaction_marker_delivery**: For streams declaring `transaction_interleaving: "possible"`, declares where TRX_COMMIT markers are delivered -- "transaction_metadata_channel" (a dedicated logical channel) or "per_channel". (Under `ordering_scope: "stream"` with "possible" interleaving, the stream's one channel and a dedicated metadata channel may coincide; either declared value is then acceptable and consumers treat them identically.) The marker remains an in-band logical event; physical transport coordinates are never embedded.
 - **transaction_visibility**: Declares stream visibility -- "committed_only" (the only value defined in this revision). SHOULD be declared; absent MUST default to "committed_only" (P-TRX-6). A future visibility mode may make uncommitted-transaction records visible; the value space is reserved so that consumers which understand such a future mode can opt into processing uncommitted records (with appropriate rollback handling) rather than fail. Until such a mode is defined, an unrecognized value is handled per C-TRX-1.
 - **bidirectional**: Boolean; absent = `false`. `true` declares this producer is one leg of a bidirectional (active-active) pair, binding the loop-suppression obligation (Section 3.4, P-LOOP-1).
+- **ddl_capture**: `"verbatim"`, `"structural"` or `"none"`; absent = `"none"`. Whether source DDL operations affecting captured tables' emission schemas are surfaced as DDL events (Section 9).
+- **initial_load**: `"none"` or `"at_start"`; absent = `"none"`. Declares the initial-load strategy (Section 10.3, P-SNAP-1).
 - **capture_mode**: OPTIONAL informational string identifying the capture technique (e.g., "logminer", "wal", "binlog"). Informational only; consumers derive no behavior from it.
 
 #### Single Channel Stream
@@ -2026,7 +2032,7 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Section: 14.1
 
 - **P-SNAP-1**
-  - Requirement: Initial load: SNAPSHOT events for a table precede its first steady-state DML; producer signals initial-load completion (snapshot_complete or first DML cdcxid) and declares the initial-load phase in STREAM_METADATA
+  - Requirement: Initial load: SNAPSHOT events for a table precede its first steady-state DML; producer signals completion with meta.SNAPSHOT_END and declares `initial_load` in STREAM_METADATA
   - Who: Producer
   - Section: 10.3
 

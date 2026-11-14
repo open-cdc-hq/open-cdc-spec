@@ -66,6 +66,12 @@
         "none"
       ]
     },
+    "initial_load": {
+      "enum": [
+        "none",
+        "at_start"
+      ]
+    },
     "session_aware": {
       "type": "boolean"
     },

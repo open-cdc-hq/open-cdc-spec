@@ -76,6 +76,22 @@
       "if": {
         "properties": {
           "type": {
+            "pattern": "\\.cdc\\.meta\\.SNAPSHOT_(BEGIN|END)"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "subject",
+          "cdcxid",
+          "cdcpos"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
             "pattern": "\\.cdc\\.(dml|ddl)\\."
           }
         }
