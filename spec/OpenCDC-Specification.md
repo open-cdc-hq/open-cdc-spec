@@ -533,7 +533,7 @@ CDC-specific envelope fields that have no CloudEvents native equivalent are carr
 - **cdcxid**
   - Type: String
   - Required: MUST (DML/DDL)
-  - Description: Transaction identifier, source-normalized to a human-readable string. All events in the same source transaction carry the same cdcxid value. Format is source-specific but MUST be stable and unique within the stream. The value is opaque: consumers group and compare cdcxid values but never parse their internal structure, which differs across source engines.
+  - Description: Transaction identifier, source-normalized to a human-readable string. All events in the same source transaction carry the same cdcxid value. Format is source-specific but MUST be stable and unique within the stream, including across source incarnations (Section 8.4.5); a producer MAY compose the commit position (for example the commit SCN) into the value where the source reuses native transaction identifiers. The value is opaque: consumers group and compare cdcxid values but never parse their internal structure, which differs across source engines.
 
 - **cdctxorder**
   - Type: Integer
@@ -1366,7 +1366,7 @@ Non-Transactional TRUNCATE (Oracle, MySQL/MariaDB): TRUNCATE is a DDL statement 
 
 ## 8.4 Sequence Discontinuity -- Producer Obligations and Consumer Handling
 
-Under normal operation, the CloudEvents sequence counter is monotonically increasing within a session and pos.lsn values are monotonically increasing within a stream (P-SEQ-6). Several real-world operational conditions break these guarantees. This section defines how producers MUST signal discontinuities; consumer responses are specified in Appendix A.7.
+Under normal operation, the CloudEvents sequence counter is monotonically increasing within a session and pos.lsn values are monotonically increasing within a session (P-SEQ-6). Several real-world operational conditions break these guarantees. This section defines how producers MUST signal discontinuities; consumer responses are specified in Appendix A.7.
 
 ### 8.4.1 Sequence Continuity Declaration (STREAM_METADATA)
 
@@ -1379,7 +1379,7 @@ Every STREAM_METADATA event MUST include a sequence_continuity field in its data
   - Meaning: Producer believes LSN continuity holds but cannot guarantee it -- e.g., after a non-switchover restart.
 
 - **"reset"**
-  - Meaning: Producer declares pos.lsn values from this session are NOT comparable to values from any prior session. Counter restarts.
+  - Meaning: Producer declares pos.lsn values from this session are NOT comparable to values from any prior session. Counter restarts. A reset tells consumers the stream has been reset and MAY resend data previously sent (for example, a producer explicitly repositioning its offset). `"reset"` MUST NOT be used to conceal a skipped range (R-POS-9).
 
 ### 8.4.2 In-Stream Discontinuity Signaling (HEARTBEAT)
 
@@ -1389,17 +1389,23 @@ When a sequence or LSN discontinuity occurs mid-session, the producer MUST signa
 
 Scenario 1 -- Database migration or physical source change: When the CDC producer continues streaming after the source database is migrated to a new physical host, the new instance may produce LSN values that are non-comparable with the previous instance. Producer MUST set sequence_continuity: "reset" in the first STREAM_METADATA after migration. (Consumer baseline-reset behavior on this signal is specified in Appendix A.7.)
 
-Scenario 2 -- High-availability failover (primary/standby promotion): Producer MUST set sequence_continuity: "best_effort" or "reset" depending on whether LSN continuity across the failover can be verified. If verification is not possible, MUST use "reset". Producers MUST NOT silently continue with "guaranteed" after a detected failover.
+Scenario 2 -- High-availability failover (primary/standby promotion): Producer MUST set sequence_continuity: "best_effort" or "reset" depending on whether LSN continuity across the failover can be verified. If verification is not possible, the saved position is handled per Section 8.4.5 (stop with an error, or a declared reset per Scenario 6); failover does not by itself change the source incarnation in every engine. Producers MUST NOT silently continue with "guaranteed" after a detected failover.
 
-Scenario 3 -- Binary log rotation without GTID (MySQL): Producer MUST normalize pos.lsn to a monotonically increasing value across binlog rotation (e.g., by encoding the binlog file sequence number as high bytes of the hex LSN string). If the producer cannot guarantee this normalization, it MUST set sequence_continuity: "reset". MySQL GTIDs provide a more robust position space and are RECOMMENDED for OpenCDC-conformant MySQL producers.
+Scenario 3 -- Binary log rotation without GTID (MySQL): Producer MUST normalize pos.lsn to a monotonically increasing value across binlog rotation (e.g., by encoding the binlog file sequence number as high bytes of the hex LSN string), using a position space bound to the source incarnation (Section 8.4.5), because binlog file numbering can restart after `RESET MASTER` or a restore. If the producer cannot guarantee this normalization, it MUST set sequence_continuity: "reset". MySQL GTIDs provide a more robust position space and are RECOMMENDED for OpenCDC-conformant MySQL producers.
 
 Scenario 4 -- New tables or columns added to capture scope on reconnect: Producer MUST emit these OBJECT_METADATA events with sequence values higher than the last event of the prior session if determinable. If not, MUST emit with sequence_continuity: "reset". (Consumer acceptance of post-reconnect OBJECT_METADATA sequence values is specified in Appendix A.7.)
 
 Scenario 5 -- Multi-master or active-active source topology: Producer MUST set sequence_continuity: "best_effort" for streams from multi-master topologies. The CloudEvents sequence counter is the producer's authoritative emission order in this case -- pos.lsn values are per-node and MUST NOT be compared across nodes -- and yields a consumable total order where the producer declares ordering_scope: "stream" and the consumer receives that sequence as one ordered channel (Section 3.3). Producer SHOULD include originating node identifier in pos.native_position.
 
+Scenario 6 -- Resume position no longer available (for example purged binlog, invalidated replication slot, unavailable archived redo, or a CDC cleanup job): The producer MUST stop with an unrecoverable-position error (R-POS-9). A producer MAY instead reset the stream only if (i) reset is enabled by explicit configuration and is not the default; and (ii) it emits STREAM_METADATA declaring `sequence_continuity: "reset"` before the first event after the reset, so a reset is never silent. Where the reset re-establishes state by a full initial load, that load follows Section 10.3 and consumers apply it as replace, not merge: a consumer cannot infer deletions that occurred in a gap. Events re-sent by explicit repositioning keep their original ids and are subject to (source, id) deduplication; events re-emitted by a reset that re-establishes state by initial load are new events and carry new ids. Implementing reset is OPTIONAL in this revision.
+
 ### 8.4.4 What the Specification Does Not Govern
 
 The following are intentionally outside scope: specific LSN normalization algorithms for individual database engines; operational procedures for verifying LSN continuity after failover; monitoring thresholds for acceptable LSN lag or gap rates; vendor-specific GTID formats, binlog file naming, or SCN semantics. The specification defines the output contract and what producers must declare. The implementation path to satisfying that contract is the producer implementer's responsibility.
+
+### 8.4.5 Source Incarnation
+
+cdcxid uniqueness and cdcpos validity span source incarnations (for example RESETLOGS, a timeline change, or a binlog reset): a producer MUST compose whatever incarnation identity its source requires into these values so that no cdcxid or cdcpos is reused for different data. On restart, before resuming from its saved position, a producer MUST establish that the position is still valid for the current source incarnation -- by determining or verifying the incarnation from the source, or from an operator-supplied incarnation token that is changed on restore or reset. If it cannot, it MUST NOT resume from that position: it stops with an error (R-POS-9) or, where configured, performs a declared reset (Section 8.4.3, Scenario 6). This is a producer obligation; consumers are not expected to verify source incarnation. The CloudEvents source attribute MUST NOT change across producer restarts or host moves of the same logical source. pos.lsn comparability across an incarnation boundary is governed by sequence_continuity.
 
 # 9. DDL Events
 
