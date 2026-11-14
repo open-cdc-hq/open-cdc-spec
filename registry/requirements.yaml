@@ -665,6 +665,12 @@ requirements:
   sections:
   - '9'
   - '8.3'
+- id: P-HB-1
+  level: MUST
+  requirement: Emit HEARTBEAT at least every declared heartbeat_interval_seconds during idle periods; cannot be disabled
+  who: Producer
+  sections:
+  - '10.1'
 matrix:
 - capability: Schema delivery before first DML
   producer: MUST
@@ -804,6 +810,7 @@ matrix:
   - '10.1'
   req_ids:
   - T-HEARTBEAT
+  - P-HB-1
 - capability: 'Loop suppression (BD; when bidirectional declared): no re-emission toward the ingress counterpart'
   producer: MUST
   consumer: null

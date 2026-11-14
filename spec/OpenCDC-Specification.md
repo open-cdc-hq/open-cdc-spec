@@ -443,7 +443,7 @@ To ensure that partial implementations can interoperate, OpenCDC defines a Minim
   - Multi-Channel / Distributed: Events for a transaction MAY arrive across multiple independent channels. An explicit transaction completeness marker (TRX_COMMIT) is REQUIRED when `transaction_interleaving: "possible"` is declared (Section 10.5) and enables deterministic boundary detection.
 
 - **Stream Liveness**
-  - Producer MUST: Emit HEARTBEAT during idle periods
+  - Producer MUST: Emit HEARTBEAT during idle periods (P-HB-1, Section 10.1)
 
 Consumer-side obligations for the minimum profile (accept/apply DML, cache schema, decode by logical_type, distinguish LOB null states, deduplicate, apply in cdctxorder, assemble by cdcxid, monitor HEARTBEAT) are specified as non-normative service-level guidance in Appendix A.
 
@@ -1471,7 +1471,7 @@ HEARTBEAT events provide two functions: stream liveness signaling and, in certai
 
 **Common Requirements (All Topologies)**
 
-Producers MUST emit HEARTBEAT events periodically during idle periods (no DML changes occurring). They solve the fundamental monitoring problem of distinguishing a silent stream (no changes) from a broken stream (capture has failed). Producers MUST emit a HEARTBEAT at least every N seconds during idle periods, where N is a configurable parameter with a default of 30 seconds.
+Producers MUST emit HEARTBEAT events periodically during idle periods (no DML changes occurring). They solve the fundamental monitoring problem of distinguishing a silent stream (no changes) from a broken stream (capture has failed). **P-HB-1:** Producers MUST emit a HEARTBEAT at least every N seconds during idle periods, where N is the interval the producer declares in STREAM_METADATA (`heartbeat_interval_seconds`). The obligation cannot be disabled. HEARTBEAT `cdcpos` is a position from which resumption loses no captured event; a producer SHOULD advance its source-side confirmed position on HEARTBEAT where the engine supports it. Under `ordering_scope: "channel"`, HEARTBEAT MUST be emitted on every emission channel for which per-channel completion-by-HEARTBEAT is relied on (T-COMPLETE (b)); otherwise HEARTBEAT on a declared liveness channel suffices.
 
 ```
 {
@@ -1640,7 +1640,7 @@ Every STREAM_METADATA event MUST contain the following fields in its data object
 - **opencdc_version**: Wire/spec version (e.g., "0.3")
 - **source_db**: Source database system identification
 - **tables**: Array of table identifiers captured in this stream (the *captured tables*; see Terms and Definitions)
-- **heartbeat_interval_seconds**: Integer; default 30. Maximum idle interval before HEARTBEAT emission
+- **heartbeat_interval_seconds**: Integer. Maximum idle interval before HEARTBEAT emission (P-HB-1). There is no value that disables HEARTBEAT.
 - **ordering_scope**: `"stream"` or `"channel"` -- whether the producer emits one globally ordered sequence, or guarantees order only within each emission channel. MUST be declared (P-SCOPE-1); the conservative value when in doubt is `"channel"` (P-SCOPE-2). Producer-determined (emission semantics; Section 2.2a).
 - **transaction_interleaving**: `"none"` or `"possible"` -- whether events of different transactions can arrive interspersed at a consumption point. MUST be declared (P-ILV-1); the conservative value when in doubt is `"possible"` (P-ILV-2). Governs the completion strategy (Section 8.3) and the TRX_COMMIT obligation (Section 10.5). Producer-determined (emission semantics; Section 2.2a).
 - **sequence_continuity**: Declares position comparability across session boundaries ("guaranteed", "best_effort", or "reset") (P-SEQ-4). Producer-determined (emission), constrained by source position semantics and deployment topology.
@@ -2205,6 +2205,11 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Who: Producer
   - Section: 9, 8.3
 
+- **P-HB-1**
+  - Requirement: Emit HEARTBEAT at least every declared heartbeat_interval_seconds during idle periods; cannot be disabled
+  - Who: Producer
+  - Section: 10.1
+
 # 18. Design Decision Record
 
 The deliberate design decisions behind this specification -- what was adopted, what was rejected, and why -- are recorded in the companion OpenCDC Architecture Decision Record (ADR) v0.1 (see Normative References). They are maintained there, in numbered ADR entries, rather than inline, so this document can stay focused on defining the specification itself.
@@ -2251,7 +2256,7 @@ This matrix lists producer (and bilateral) conformance requirements. Consumer-si
 | cdctxorder monotonic within transaction | MUST |  |  | 6.1 | P-ORD-3 |
 | Stable UUID id (unchanged during replay) | MUST |  |  | 11.2 | P-IDEM-1 |
 | Replay begins at/before schema event | MUST |  |  | 8.2 | R-POS-2 |
-| HEARTBEAT during idle periods | MUST |  |  | 10.1 | T-HEARTBEAT |
+| HEARTBEAT during idle periods | MUST |  |  | 10.1 | T-HEARTBEAT, P-HB-1 |
 | Loop suppression (BD; when bidirectional declared): no re-emission toward the ingress counterpart | MUST |  |  | 3.4, 10.4 | P-LOOP-1 |
 | Declare bidirectional when one leg of an active-active pair | MUST |  |  | 2.2a, 10.4 | (register: axis default false) |
 | TRUNCATE: before=null, after=null, primary_key populated | MUST |  |  | 10.2.4 | P-TRUNC-1 |
