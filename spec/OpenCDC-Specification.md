@@ -380,7 +380,9 @@ A producer that emits conformant OpenCDC events MUST produce events that a confo
 
 ## 2.4 Closed-World Schemas
 
-Every OBJECT_METADATA event MUST include a json_schema block with additionalProperties: false. Unrecognized fields in a DML payload are a validation failure, not a warning. This gives consumers a precise contract: if a field appears in a DML payload, it was declared in the schema. If it was not declared, the producer is non-conformant. Closed-world validation applies to OpenCDC payload objects only, never to the CloudEvents envelope, whose extension model remains open per CloudEvents.
+Every OBJECT_METADATA event MUST include a json_schema block with additionalProperties: false. Unrecognized columns in a DML row value object (before/after) are a validation failure, not a warning. This gives consumers a precise contract: if a column appears in a row value object, it was declared in the schema. If it was not declared, the producer is non-conformant. Closed-world validation applies to row value objects only, never to the CloudEvents envelope, whose extension model remains open per CloudEvents; unknown top-level payload fields and unknown envelope extension attributes are ignorable (Section 19.1).
+
+**Wire compatibility (P-COMPAT-2).** Minor versions of `cdcspecversion` evolve additively. Removing, renaming or retyping a field, or changing its semantics, requires a major version and MUST be marked BREAKING in the Change Log. Producers MUST NOT emit fields undefined in their declared `opencdc_version`. Registry use stays optional in this core; registry compatibility modes are for transport bindings.
 
 ## 2.5 DDL as a First-Class Citizen
 
@@ -2181,6 +2183,11 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Who: Producer
   - Section: 3.3, 6.1
 
+- **P-COMPAT-2**
+  - Requirement: Minor wire versions are additive; renames/retypes/semantic changes require a major version marked BREAKING; producers emit no fields undefined in their declared opencdc_version
+  - Who: Producer
+  - Section: 2.4
+
 - **R-POS-8**
   - Requirement: Resume unit is the transaction; a re-emitted prefix keeps original ids, cdctxorder, cdcxid and TRX_COMMIT event_count
   - Who: Producer
@@ -2283,6 +2290,7 @@ This matrix lists producer (and bilateral) conformance requirements. Consumer-si
 | Replay redelivers a transaction's TRX_COMMIT (stable id, same event_count) | MUST |  |  | 8.2, 10.5 | R-POS-6 |
 | meta.* lifecycle types additive; dml.*/ddl.* vocabularies closed; names not repurposed | MUST |  |  | 2.2a, 3.2 | P-COMPAT-1 |
 | Initial load: SNAPSHOT precedes steady-state DML; completion signaled | MUST |  |  | 10.3 | P-SNAP-1 |
+| Wire compatibility: additive minor versions; no fields outside the declared opencdc_version | MUST |  |  | 2.4 | P-COMPAT-2 |
 | Resume at transaction granularity with original ids and event_count | MUST |  |  | 8.2 | R-POS-8 |
 | Unavailable resume position surfaced as an error, never silently skipped | MUST |  |  | 8.2, 8.4.3 | R-POS-9 |
 | No source-log release before delivery-layer acknowledgement | MUST |  |  | 8.2 | R-POS-10 |

@@ -627,6 +627,12 @@ requirements:
   who: Consumer
   sections:
   - A.10
+- id: P-COMPAT-2
+  level: MUST
+  requirement: Minor wire versions are additive; renames/retypes/semantic changes require a major version marked BREAKING; producers emit no fields undefined in their declared opencdc_version
+  who: Producer
+  sections:
+  - '2.4'
 - id: R-POS-8
   level: MUST
   requirement: Resume unit is the transaction; a re-emitted prefix keeps original ids, cdctxorder, cdcxid and TRX_COMMIT event_count
@@ -986,6 +992,14 @@ matrix:
   - '10.3'
   req_ids:
   - P-SNAP-1
+- capability: 'Wire compatibility: additive minor versions; no fields outside the declared opencdc_version'
+  producer: MUST
+  consumer: null
+  delivery_layer: null
+  sections:
+  - '2.4'
+  req_ids:
+  - P-COMPAT-2
 - capability: Resume at transaction granularity with original ids and event_count
   producer: MUST
   consumer: null
