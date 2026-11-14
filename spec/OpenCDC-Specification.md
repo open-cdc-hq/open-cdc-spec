@@ -332,7 +332,7 @@ A self-describing stream declares its behavior through independent **capability 
   That is the entire claim: one sequence or several. It says nothing about how a transport partitions, merges, or delivers those sequences -- it describes only what the producer writes. This declaration determines the comparison domain for positions and `sequence` values (Sections 3.3, 8.2) and, with `transaction_interleaving`, the consumer's assembly strategy (Section 8.3, Appendix A.5). Declaration is mandatory (P-SCOPE-1). **When in doubt, declare `"channel"`** -- declare `"stream"` only where one total order across every event is structurally enforced, not merely observed (P-SCOPE-2).
 
 - **`transaction_interleaving`** (`"none"` | `"possible"`) -- *When the producer emits several transactions, do their events stay grouped?*
-  - **`"none"`**: transactions are emitted whole, one after another. Every event of a transaction is emitted before the first event of the next transaction begins: `[T1, T1, T1] [T2, T2] [T3, ...]`.
+  - **`"none"`**: within each emission channel (the whole stream under `ordering_scope: "stream"`), transactions are emitted whole, one after another. A transaction emitted on more than one channel is whole within each channel it uses, and completion-by-ordering is per channel. Every event of a transaction is emitted before the first event of the next transaction begins: `[T1, T1, T1] [T2, T2] [T3, ...]`.
   - **`"possible"`**: the producer may interleave -- events of different transactions can be mixed together in the emitted sequence: `[T1, T2, T1, T3, T2, ...]`. Each transaction's events remain internally ordered (`cdctxorder`), but transactions overlap.
 
   That is the entire claim: contiguous or not. It says nothing about when a source transaction commits, and nothing about delivery -- it describes only the order the producer writes events. This declaration determines the consumer's completion strategy (Section 8.3) and the producer's TRX_COMMIT marker obligations (Section 10.5, P-TRX-1, P-TRX-7). Declaration is mandatory (P-ILV-1). **When in doubt, declare `"possible"`** (P-ILV-2).
@@ -362,7 +362,7 @@ A self-describing stream declares its behavior through independent **capability 
 |---|---|---|---|
 | stream | none | none (markers optional/redundant) | yes -- the *single* profile; completion via next-cdcxid / HEARTBEAT |
 | stream | possible | commit_all | yes -- one total order, but ordering cannot signal completion; markers MANDATORY for every transaction (P-TRX-1). `commit_multi_event` is NOT valid here: a markerless single-event transaction is indistinguishable from an incomplete one under interleaving |
-| channel | none | none (markers optional/redundant) | yes -- every transaction is delivered whole within one channel; per-channel completion via ordering. Declare only where the routing invariant is structurally enforced |
+| channel | none | none (markers optional/redundant) | yes -- every transaction is delivered whole within each channel it uses; per-channel completion via ordering. Declare only where the routing invariant is structurally enforced |
 | channel | possible | commit_all | yes -- the *multi* profile; cdcxid assembly plus markers MANDATORY for every transaction (P-TRX-1); canonical decoupled deployment. `commit_multi_event` is NOT valid here, for the same reason as the row above |
 | any | **possible** | **none** | **NO -- non-conformant** (interleaving without markers forces fragile timeouts) |
 
@@ -1135,19 +1135,17 @@ The following ordering obligations are common to all topologies:
 
 #### Single Channel Stream
 
-- P-ORD-1: Producers MUST emit events in source commit order within the single captured stream: events are emitted grouped by transaction, in the order the source engine committed those transactions, and in cdctxorder sequence within each transaction. Commit order -- not the physical order of records in the source log, which interleaves concurrent transactions -- is the order every log-based capture interface exposes and the only order under which T-NOINTERLEAVE is satisfiable.
+- P-ORD-1: Producers MUST emit events in source commit order within the single captured stream: events are emitted in the order the source engine committed their transactions, and in cdctxorder sequence within each transaction; where `transaction_interleaving: "none"` is declared they are grouped by transaction, and where `"possible"` is declared events of different transactions MAY be interleaved. Commit order -- not the physical order of records in the source log, which interleaves concurrent transactions -- is the order every log-based capture interface exposes and the only order under which T-NOINTERLEAVE is satisfiable.
 
 - P-ORD-6 (SHOULD -- Partition Alignment convenience): When a producer emits partitionkey on a partitioned single-channel transport, it SHOULD assign all events of a transaction (same cdcxid) the same partitionkey value so they remain co-partitioned. This is a throughput/ordering convenience, not a correctness requirement: single-channel transaction ordering is guaranteed by the emission channel's total order and T-NOINTERLEAVE. Consumers MAY ignore partitionkey (Appendix A.4).
 
-- T-NOINTERLEAVE: Events from different transactions MUST NOT be interleaved in the stream. All events of transaction cdcxid=A MUST be delivered before any event of transaction cdcxid=B, for any A that commits before B. A producer that interleaves transaction events is non-conformant.
+- T-NOINTERLEAVE: Where `transaction_interleaving: "none"` is declared, events from different transactions MUST NOT be interleaved within an emission channel (stream-wide under `ordering_scope: "stream"`). All events of transaction cdcxid=A MUST be delivered before any event of transaction cdcxid=B, for any A that commits before B. Where `"possible"` is declared, this rule does not bind and P-TRX-1 applies.
 
 #### Multi-Channel / Distributed Topologies
 
-- P-ORD-1-MC: Producers MUST emit events in source commit order within each channel. Cross-channel total ordering is not guaranteed by the producer; consumers reconstruct transaction boundaries using cdcxid, cdctxorder, and explicit transaction completeness markers (e.g., TRX_COMMIT).
+- P-ORD-1-MC: Producers MUST emit events in source commit order within each channel, grouped by transaction where `transaction_interleaving: "none"` is declared. Cross-channel total ordering is not guaranteed by the producer; consumers reconstruct transaction boundaries using cdcxid, cdctxorder, and explicit transaction completeness markers (e.g., TRX_COMMIT).
 
-- P-ORD-6-MC: In multi-channel deployments, events of a single transaction naturally span multiple channels. Each event carries its own partitionkey (typically the primary key hash of the changed row). The single channel stream constraint that all transaction events share a single partitionkey does NOT apply. Transaction integrity is ensured by cdcxid grouping and explicit transaction completeness markers.
-
-- T-NOINTERLEAVE-MC: Where `transaction_interleaving: "none"` is declared, events from different transactions MUST NOT be interleaved within each emission channel. Where `"possible"` is declared, this rule does not bind and TRX_COMMIT markers are mandatory instead (P-TRX-1). Across channels, events from different transactions MAY arrive in any order -- this is expected and correct. Consumers assemble complete transactions by grouping on cdcxid across channels.
+- T-NOINTERLEAVE applies within each emission channel. Across channels, events from different transactions MAY arrive in any order -- this is expected and correct. Consumers assemble complete transactions by grouping on cdcxid across channels.
 
 ## 6.2 Type Fidelity Obligations
 
@@ -1333,9 +1331,9 @@ The following requirements are common to all topologies:
 
 T-COMPLETE: When `transaction_interleaving: "none"` is declared, a transaction is complete when (a) the first event of a new cdcxid is observed, OR (b) a HEARTBEAT is received after all events of the transaction have been delivered. When `transaction_interleaving: "possible"` is declared, completion is condition (c): the transaction's TRX_COMMIT has been received and the consumer holds all distinct cdctxorder ordinals 0..event_count-1 (Section 10.5). (a)/(b) are ordering-based mechanisms available under the "none" interleaving guarantee (per channel, when `ordering_scope: "channel"`); (c) is the marker mechanism required under "possible". Consumer-side reliability of (a)/(b) additionally presupposes that "none" interleaving actually holds at the point of consumption -- direct delivery, or a delivery context known to preserve it (Appendix A.1, C-COMP-1). Condition (b) is available in all single channel streams regardless of session awareness: the producer MUST emit a HEARTBEAT within the configured heartbeat_interval_seconds after any transaction that is followed by an idle period (T-HEARTBEAT), so a completion signal is guaranteed for the final transaction before an idle gap even when no subsequent cdcxid follows. This requirement applies whether session_aware is true or false, because completion-by-HEARTBEAT relies only on single channel total ordering (T-NOINTERLEAVE), not on session awareness.
 
-- T-NOINTERLEAVE: Events from different transactions MUST NOT be interleaved in the stream. All events of transaction cdcxid=A MUST be delivered before any event of transaction cdcxid=B, for any A that commits before B. A producer that interleaves transaction events is non-conformant.
+T-NOINTERLEAVE (Section 6.1) applies.
 
-OpenCDC defines an explicit transaction completeness marker, TRX_COMMIT (Section 10.5); where `transaction_interleaving: "none"` is declared it is OPTIONAL because transaction completion is reliably inferred (subject to the delivered order actually preserving it -- Appendix A.1, C-COMP-1 -- and to P-TRX-7 for payload-only producers): a consumer that has received all events for a given cdcxid (detected by receiving the first event of the next cdcxid, or by a HEARTBEAT after a transaction) may commit the transaction atomically. Producers MUST emit all events of a transaction before emitting any event of a subsequent transaction (i.e., transactions MUST NOT be interleaved in the stream). This guarantee makes transaction boundary detection reliable from cdcxid alone. This inference model works for both session-aware and sessionless single channel streams because the total ordering guarantee (T-NOINTERLEAVE) is a property of the single channel, not of session awareness.
+OpenCDC defines an explicit transaction completeness marker, TRX_COMMIT (Section 10.5); where `transaction_interleaving: "none"` is declared it is OPTIONAL because transaction completion is reliably inferred (subject to the delivered order actually preserving it -- Appendix A.1, C-COMP-1 -- and to P-TRX-7 for payload-only producers): a consumer that has received all events for a given cdcxid (detected by receiving the first event of the next cdcxid, or by a HEARTBEAT after a transaction) may commit the transaction atomically. Where `"none"` is declared, producers MUST emit all events of a transaction before emitting any event of a subsequent transaction (i.e., transactions MUST NOT be interleaved within the channel). This guarantee makes transaction boundary detection reliable from cdcxid alone. This inference model works for both session-aware and sessionless single channel streams because the total ordering guarantee (T-NOINTERLEAVE) is a property of the single channel, not of session awareness.
 
 #### Multi-Channel / Distributed Topologies -- Transaction Completion
 
@@ -1879,7 +1877,7 @@ The production-deployment best practices formerly recorded here (schema-mismatch
 This summary lists the producer (and bilateral) conformance requirements. Conformance is capability-scoped: a producer satisfies the rules that apply to the capabilities it declares in STREAM_METADATA (ordering_scope, transaction_interleaving, transaction_boundaries, session_aware, schema_delivery, sequence_continuity, bidirectional, ddl_capture), not necessarily every rule in the document (see Section 19). Consumer obligations (C-* and consumer-side R-*) are non-normative and are defined as a consumer parse pipeline in Appendix A; they are not listed here. SHOULD requirements are register-only -- see the relevant section for the complete normative text.
 
 - **P-ORD-1**
-  - Requirement: Emit events in source commit order (grouped by transaction, in source commit sequence; cdctxorder within each)
+  - Requirement: Emit events in source commit order (cdctxorder within each transaction); grouped by transaction where `transaction_interleaving: "none"` is declared
   - Who: Producer
   - Section: 6.1
 
@@ -2325,7 +2323,7 @@ OpenCDC Specification -- Draft v0.7.0 -- June 2026 -- OpenCDC Working Group
 
 - **T-18** (axis cell: `channel` + `none` -- sharded, transaction-contiguous)
   - Scenario: Per-channel marker-free completion
-  - Pass Criterion: Stream declares `ordering_scope: "channel"`, `transaction_interleaving: "none"`, no `transaction_boundaries`. Every transaction is delivered whole within one channel; the consumer applies per-channel completion by ordering with no markers and no cross-channel assembly.
+  - Pass Criterion: Stream declares `ordering_scope: "channel"`, `transaction_interleaving: "none"`, no `transaction_boundaries`. Every transaction is delivered whole within each channel it uses; the consumer applies per-channel completion by ordering with no markers, and per-channel completion says nothing about the transaction's events on other channels.
   - Use Case: Interoperability; Sharded transaction-atomic delivery
 
 - **T-19**

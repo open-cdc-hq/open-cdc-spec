@@ -5,7 +5,7 @@ meta:
 requirements:
 - id: P-ORD-1
   level: MUST
-  requirement: Emit events in source commit order (grouped by transaction, in source commit sequence; cdctxorder within each)
+  requirement: 'Emit events in source commit order (cdctxorder within each transaction); grouped by transaction where `transaction_interleaving: "none"` is declared'
   who: Producer
   sections:
   - '6.1'
