@@ -1362,7 +1362,9 @@ TRUNCATE has materially different transactional properties depending on the sour
 
 Transactional TRUNCATE (PostgreSQL, SQL Server): TRUNCATE is a fully transactional operation that participates in the enclosing transaction and can be rolled back. The TRUNCATE event MUST carry the source transaction's real cdcxid. A TRUNCATE can appear mid-transaction alongside INSERT, UPDATE, and DELETE events -- all events share the same cdcxid and sequential cdctxorder values. DML events may appear after a TRUNCATE within the same cdcxid; this is a valid transactional sequence to be applied in cdctxorder order. (Consumer TRUNCATE handling is specified in Appendix A.8.)
 
-Non-Transactional TRUNCATE (Oracle, MySQL/MariaDB): TRUNCATE is a DDL statement that causes an implicit COMMIT of any open transaction before executing and cannot be rolled back. Because it does not belong to a real source transaction, a producer capturing an Oracle or MySQL TRUNCATE MUST assign a synthetic cdcxid value. The synthetic value MUST be: (a) unique within the stream, (b) stable across replay of the same event (same synthetic cdcxid on replay), and (c) documented by the producer implementation. Non-transactional TRUNCATE events will never appear alongside other DML events in the same cdcxid -- they are always solitary single-event synthetic transactions.
+Non-Transactional TRUNCATE (Oracle, MySQL/MariaDB): TRUNCATE is a DDL statement that causes an implicit COMMIT of any open transaction before executing and cannot be rolled back. Because it does not belong to a real source transaction, a producer capturing an Oracle or MySQL TRUNCATE MUST assign a synthetic cdcxid value. The synthetic value MUST be: (a) unique within the stream, (b) stable across replay of the same event (same synthetic cdcxid on replay), and (c) documented by the producer implementation. Non-transactional TRUNCATE events will never appear alongside other DML events in the same cdcxid -- they are always solitary single-event synthetic transactions. The same applies to all non-transactional DDL (P-DDL-4, Section 9).
+
+Committed work only: producers emit only committed work (`transaction_visibility: "committed_only"`). A prepared (two-phase commit) transaction is emitted at commit, not at prepare. *Informative:* autonomous transactions (for example Oracle `PRAGMA AUTONOMOUS_TRANSACTION`) commit independently of their parent and are emitted as separate transactions with their own cdcxid.
 
 ## 8.4 Sequence Discontinuity -- Producer Obligations and Consumer Handling
 
@@ -1410,6 +1412,8 @@ cdcxid uniqueness and cdcpos validity span source incarnations (for example RESE
 # 9. DDL Events
 
 DDL events are first-class CloudEvents that carry schema change operations in the same logically ordered sequence as DML events. Their emission is governed by the `ddl_capture` capability axis (Section 2.2a). When `ddl_capture` is not `"none"`, the producer MUST emit a DDL event for every source DDL operation that changes a captured table's emission schema, including source operations that create or drop a captured table (P-DDL-1), emitted in source commit order with DML events (Section 6.1, P-ORD-1; per emission channel under P-ORD-1-MC), so that a schema change and the data changes that depend on it are always positionally correlated. This is the coverage floor: DDL events for operations that do not change any emission schema MAY additionally be emitted, and MUST NOT trigger OBJECT_METADATA re-emission or a schema_version increment. The coverage guarantee in every mode extends only to emission-schema-affecting operations: the absence of a DDL event for any other source operation (indexes, storage clauses, grants) means nothing, in any mode. Under `ddl_capture: "none"` no DDL-event coverage is guaranteed at all and schema evolution is conveyed solely by OBJECT_METADATA (Section 4.1); a producer MAY still emit `ddl.*` events opportunistically, and any DDL event it emits, in any mode, MUST conform to Section 9.1 (P-DDL-2). A producer whose source exposes DDL for captured tables in its change interface SHOULD declare and provide at least `ddl_capture: "structural"` (P-DDL-3).
+
+Non-transactional DDL (P-DDL-4): where a source engine executes DDL outside any enclosing transaction (implicit commit -- for example Oracle and MySQL/MariaDB), the producer MUST emit the DDL event as a solitary single-event transaction with a synthetic cdcxid that is unique within the stream, stable across replay, and documented by the producer, as for non-transactional TRUNCATE (P-TRUNC-3, Section 8.3).
 
 A producer MUST NOT emit a `ddl.*` event for a change that did not occur as a source DDL operation (P-DDL-2). Producer-originated emission-schema changes -- a change to the captured table or column set, to masking, or to type mapping -- are conveyed by OBJECT_METADATA alone (Section 4.1) in every `ddl_capture` mode; synthesizing a DDL event to represent one misattributes a producer configuration change to the source.
 
@@ -1511,7 +1515,7 @@ TRUNCATE is a DDL-adjacent operation that OpenCDC formally classifies as dml.TRU
 
 ### 10.2.2 Transactional vs. Non-Transactional TRUNCATE
 
-TRUNCATE has fundamentally different transactional properties by engine. PostgreSQL and SQL Server: TRUNCATE is transactional, participates in the enclosing transaction, can be rolled back, and is WAL-logged or transaction-logged. The TRUNCATE event carries the real source transaction cdcxid. DML events (INSERT, UPDATE, DELETE) MAY appear after a TRUNCATE within the same cdcxid; a TRUNCATE does not terminate the transaction. (Consumer apply order is specified in Appendix A.8.) Oracle and MySQL/MariaDB: TRUNCATE is DDL. It causes an implicit COMMIT before executing and cannot be rolled back. Because there is no enclosing source transaction, producers MUST assign a synthetic cdcxid to these TRUNCATE events. The synthetic cdcxid MUST be unique, stable across replay, and documented by the producer (P-TRUNC-3). These events will never co-occur with DML events in the same cdcxid. See Section 8.3 for the full transaction boundary rules for both cases.
+TRUNCATE has fundamentally different transactional properties by engine. PostgreSQL and SQL Server: TRUNCATE is transactional, participates in the enclosing transaction, can be rolled back, and is WAL-logged or transaction-logged. The TRUNCATE event carries the real source transaction cdcxid. DML events (INSERT, UPDATE, DELETE) MAY appear after a TRUNCATE within the same cdcxid; a TRUNCATE does not terminate the transaction. (Consumer apply order is specified in Appendix A.8.) Oracle and MySQL/MariaDB: TRUNCATE is DDL. It causes an implicit COMMIT before executing and cannot be rolled back. Because there is no enclosing source transaction, producers MUST assign a synthetic cdcxid to these TRUNCATE events. The synthetic cdcxid MUST be unique, stable across replay, and documented by the producer (P-TRUNC-3); the same rule applies to all non-transactional DDL (P-DDL-4, Section 9). These events will never co-occur with DML events in the same cdcxid. See Section 8.3 for the full transaction boundary rules for both cases.
 
 ### 10.2.3 Multi-Table TRUNCATE
 
@@ -2196,6 +2200,11 @@ This summary lists the producer (and bilateral) conformance requirements. Confor
   - Who: Producer
   - Section: 8.2
 
+- **P-DDL-4**
+  - Requirement: Non-transactional DDL is a solitary single-event transaction with a synthetic cdcxid (unique, stable across replay, documented)
+  - Who: Producer
+  - Section: 9, 8.3
+
 # 18. Design Decision Record
 
 The deliberate design decisions behind this specification -- what was adopted, what was rejected, and why -- are recorded in the companion OpenCDC Architecture Decision Record (ADR) v0.1 (see Normative References). They are maintained there, in numbered ADR entries, rather than inline, so this document can stay focused on defining the specification itself.
@@ -2249,7 +2258,7 @@ This matrix lists producer (and bilateral) conformance requirements. Consumer-si
 | TRUNCATE: _null_columns and _lob_overflow present and empty | MUST |  |  | 10.2.4 | P-TRUNC-1 |
 | TRUNCATE: truncate_details populated when engine exposes options | SHOULD |  |  | 10.2.5, 2.8 | P-TRUNC-4 |
 | Multi-table TRUNCATE: one event per table, shared cdcxid, sequential cdctxorder | MUST |  |  | 6.1, 10.2.3 | P-ORD-7, P-TRUNC-2 |
-| Non-transactional TRUNCATE (Oracle, MySQL): synthetic cdcxid required | MUST |  |  | 10.2.2, 8.3 | P-TRUNC-3 |
+| Non-transactional TRUNCATE and DDL (Oracle, MySQL): synthetic cdcxid required | MUST |  |  | 10.2.2, 8.3, 9 | P-TRUNC-3, P-DDL-4 |
 | Payload encoding preserves field semantics | MUST | MUST |  | 2.7 | P-TYPE-3 |
 | Declare ordering_scope (stream/channel) | MUST |  |  | 2.2a, 10.4 | P-SCOPE-1 |
 | Declare transaction_interleaving (none/possible) | MUST |  |  | 2.2a, 10.4 | P-ILV-1 |

@@ -658,6 +658,13 @@ requirements:
   who: Producer
   sections:
   - '8.2'
+- id: P-DDL-4
+  level: MUST
+  requirement: Non-transactional DDL is a solitary single-event transaction with a synthetic cdcxid (unique, stable across replay, documented)
+  who: Producer
+  sections:
+  - '9'
+  - '8.3'
 matrix:
 - capability: Schema delivery before first DML
   producer: MUST
@@ -850,15 +857,17 @@ matrix:
   req_ids:
   - P-ORD-7
   - P-TRUNC-2
-- capability: 'Non-transactional TRUNCATE (Oracle, MySQL): synthetic cdcxid required'
+- capability: 'Non-transactional TRUNCATE and DDL (Oracle, MySQL): synthetic cdcxid required'
   producer: MUST
   consumer: null
   delivery_layer: null
   sections:
   - 10.2.2
   - '8.3'
+  - '9'
   req_ids:
   - P-TRUNC-3
+  - P-DDL-4
 - capability: Payload encoding preserves field semantics
   producer: MUST
   consumer: MUST
