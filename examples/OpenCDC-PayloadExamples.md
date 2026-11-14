@@ -108,7 +108,7 @@ STREAM_METADATA is session-scoped: it is emitted to each connecting consumer bef
 
 ### Schema Event — Emitted Once Before Any Row Events
 
-This single event carries the complete type information for every subsequent INSERT, UPDATE, and DELETE. Its `id` (`"schema-CUSTOMER_ORDERS-v1"`) is referenced by every DML event via the `dataschema` CloudEvents field. Type metadata is never repeated in DML payloads.
+This single event carries the complete type information for every subsequent INSERT, UPDATE, and DELETE. Its `id` (`"schema-CUSTOMER_ORDERS-v1"`) is referenced by every DML event via the `dataschema` CloudEvents field, in the URN form `urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1`. Type metadata is never repeated in DML payloads.
 
 **Schema overhead.** This one event is the entire schema cost for any number of subsequent DML events — O(columns), paid once. `schema_version` increments only on a structural DDL change; re-emitting OBJECT_METADATA for reconnection or replay does **not** increment it (Section 4.2).
 
@@ -253,7 +253,7 @@ This single event carries the complete type information for every subsequent INS
   "type":            "com.acme.cdc.dml.INSERT",
   "time":            "2026-05-03T09:53:01.000Z",
   "datacontenttype": "application/json",
-  "dataschema":      "schema-CUSTOMER_ORDERS-v1",             // references OBJECT_METADATA id
+  "dataschema":      "urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1",             // references OBJECT_METADATA id
   "cdcspecversion":  "0.3",
   "cdcxid":          "1510528009.5.13.0001",                  // transaction identity
   "cdctxorder":      0,                                       // 0-based position within transaction
@@ -309,7 +309,7 @@ This event demonstrates three producer behaviors simultaneously: partial UPDATE 
   "type":            "com.acme.cdc.dml.UPDATE",
   "time":            "2026-05-03T11:07:44.000Z",
   "datacontenttype": "application/json",
-  "dataschema":      "schema-CUSTOMER_ORDERS-v1",
+  "dataschema":      "urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1",
   "cdcspecversion":  "0.3",
   "cdcxid":          "1510528009.5.14.0001",                  // new transaction -> new cdcxid
   "cdctxorder":      0,
@@ -374,7 +374,7 @@ DELETE always carries a full before image — no `changed_columns`. The before i
   "type":            "com.acme.cdc.dml.DELETE",
   "time":            "2026-05-03T14:55:22.000Z",
   "datacontenttype": "application/json",
-  "dataschema":      "schema-CUSTOMER_ORDERS-v1",
+  "dataschema":      "urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1",
   "cdcspecversion":  "0.3",
   "cdcxid":          "1510528009.5.15.0001",
   "cdctxorder":      0,
@@ -468,7 +468,7 @@ Emitted within `heartbeat_interval_seconds` (30s) after the DELETE transaction w
 
 ## Example 7 — Schema by Reference (`cdcschemauri`)
 
-A deployment backed by an external schema registry. Note that `dataschema` still carries the **OBJECT_METADATA id** — the registry URI never replaces it (Section 4.5.4). `cdcschemauri` is mandatory in this mode (P-SCHEMA-6), and the referenced document must be content-equivalent to the in-stream schema. A consumer that cannot reach the registry decodes from the stream-embedded OBJECT_METADATA instead.
+A deployment backed by an external schema registry. Note that `dataschema` still references the **OBJECT_METADATA id** (in its URN form) — the registry URI never replaces it (Section 4.5.4). `cdcschemauri` is mandatory in this mode (P-SCHEMA-6), and the referenced document must be content-equivalent to the in-stream schema. A consumer that cannot reach the registry decodes from the stream-embedded OBJECT_METADATA instead.
 
 ```json
 {
@@ -479,7 +479,7 @@ A deployment backed by an external schema registry. Note that `dataschema` still
   "type":            "com.acme.cdc.dml.INSERT",
   "time":            "2026-05-03T10:15:22.412Z",
   "datacontenttype": "application/json",
-  "dataschema":      "schema-public-ORDERS-v4",
+  "dataschema":      "urn:opencdc:schema:schema-public-ORDERS-v4",
   "cdcschemauri":    "https://registry.acme.com/subjects/public.orders/versions/4/schema",
   "cdcspecversion":  "0.3",
   "cdcxid":          "764421:0004512",

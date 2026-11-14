@@ -28,7 +28,8 @@
       "const": "application/json"
     },
     "dataschema": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^urn:opencdc:schema:"
     },
     "cdcspecversion": {
       "const": "0.3"

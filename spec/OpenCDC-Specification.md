@@ -262,7 +262,7 @@ This section shows the minimum viable OpenCDC stream for a single-table producer
   "type":           "com.acme.cdc.dml.INSERT",
   "time":           "2026-05-03T10:01:00.000Z",
   "datacontenttype":"application/json",
-  "dataschema":     "schema-ORDERS-v1",
+  "dataschema":     "urn:opencdc:schema:schema-ORDERS-v1",
   "cdcspecversion": "0.3",
   "cdcxid":         "txn-00000001",
   "cdctxorder":     0,
@@ -293,7 +293,7 @@ This section shows the minimum viable OpenCDC stream for a single-table producer
 
 1. Receive STREAM_METADATA. Cache producer identity, table list, and heartbeat interval.
 2. Receive OBJECT_METADATA "schema-ORDERS-v1". Cache columns[] keyed by name. Note schema_version=1.
-3. Receive INSERT event. Verify dataschema="schema-ORDERS-v1" is cached. Resolve logical_type for each column from cache: ORDER_ID=INT32 (JSON integer), STATUS=STRING (UTF-8), AMOUNT=DECIMAL (exact decimal string).
+3. Receive INSERT event. Verify dataschema="urn:opencdc:schema:schema-ORDERS-v1" is cached. Resolve logical_type for each column from cache: ORDER_ID=INT32 (JSON integer), STATUS=STRING (UTF-8), AMOUNT=DECIMAL (exact decimal string).
 4. Apply INSERT. Acknowledge pos.lsn + pos.lsn_offset as the structured resume position. Save cdcpos as the primary resume handle.
 5. On reconnect: producer re-emits STREAM_METADATA and current OBJECT_METADATA before resuming data delivery (see Section 6).
 
@@ -489,7 +489,7 @@ OpenCDC adopts CloudEvents v1.1 as its mandatory envelope specification. Every O
 
 - **dataschema**
   - Required: MUST (DML/DDL)
-  - Value / Constraint: CloudEvents id of the most recently emitted OBJECT_METADATA event for this table. This is the field's only defined content in every schema-delivery mode: no mode substitutes a registry URL, an embedded schema, or any other value. Deployments that also publish schema to an external registry carry the registry location in cdcschemauri (Section 3.3), never here. Omitted for HEARTBEAT and STREAM_METADATA events.
+  - Value / Constraint: The URN `urn:opencdc:schema:` followed by the CloudEvents id of the most recently emitted OBJECT_METADATA event for this table (for example `urn:opencdc:schema:schema-ORDERS-v1`). CloudEvents types `dataschema` as a URI, so the bare OBJECT_METADATA id is carried inside this URN; the OBJECT_METADATA id itself is unchanged. A consumer resolves the schema by removing the `urn:opencdc:schema:` prefix and matching the remainder to an OBJECT_METADATA id. This is the field's only defined content in every schema-delivery mode: no mode substitutes a registry URL, an embedded schema, or any other value. Deployments that also publish schema to an external registry carry the registry location in cdcschemauri (Section 3.3), never here. Omitted for HEARTBEAT and STREAM_METADATA events.
 
 ## 3.2 Operation Type Vocabulary
 
@@ -601,7 +601,7 @@ Loop suppression MUST be implemented by the producer, not the consumer. A consum
   "type":            "com.acme.cdc.dml.UPDATE",
   "time":            "2026-03-22T14:23:01.000Z",               // commit time
   "datacontenttype": "application/json",
-  "dataschema":      "schema-ORDERS-v2",                       // OBJECT_METADATA id
+  "dataschema":      "urn:opencdc:schema:schema-ORDERS-v2",                       // OBJECT_METADATA id
   // -- OpenCDC extension attributes --
   "cdcspecversion":  "0.3",
   "cdcxid":          "1510528009.5.13.7625",
@@ -628,7 +628,7 @@ The following are MUST requirements for all conforming producers, regardless of 
 
 - P-DML-1: DML event before and after value objects MUST carry column data values only. source_type, logical_type, parameters, and nullability MUST NOT appear within before or after row value objects — they reside in the OBJECT_METADATA column descriptor. When Schema on Each Event is active (Section 4.5.3), an additional _schema key MAY appear at the top level of the DML data object; this is the sole permitted location for per-event schema restatement and does not affect the values-only constraint on before/after.
 
-- The dataschema field of every DML event MUST equal the CloudEvents id of the most recently emitted OBJECT_METADATA event for its table. This invariant holds in every schema-delivery mode and is not relaxed by Schema on Each Event or Schema by Reference; both supplement the id linkage rather than replacing it. Replay correctness depends on it (R-POS-7).
+- The dataschema field of every DML event MUST equal `urn:opencdc:schema:` followed by the CloudEvents id of the most recently emitted OBJECT_METADATA event for its table (Section 3.1). This invariant holds in every schema-delivery mode and is not relaxed by Schema on Each Event or Schema by Reference; both supplement the id linkage rather than replacing it. Replay correctness depends on it (R-POS-7).
 
 - The producer MUST declare its active schema delivery modes in STREAM_METADATA (see Section 10.4 for declaration obligations and topology-specific delivery mechanisms).
 
@@ -642,11 +642,11 @@ When `session_aware` is true, the producer MUST enforce the following ordering p
 MANDATORY STREAM ORDERING -- SESSION-AWARE PRODUCER (per consumer session):
   [1]  STREAM_METADATA  (session-scoped: first event to this consumer -- NOT part of durable stream ordering)
   [2]  OBJECT_METADATA  id:"schema-ORDERS-v1"      <- MUST precede [3]
-  [3]  INSERT           dataschema:"schema-ORDERS-v1"
-  [4]  UPDATE           dataschema:"schema-ORDERS-v1"
+  [3]  INSERT           dataschema:"urn:opencdc:schema:schema-ORDERS-v1"
+  [4]  UPDATE           dataschema:"urn:opencdc:schema:schema-ORDERS-v1"
   [5]  DDL ALTER        (adds TRACKING_CODE column)
   [6]  OBJECT_METADATA  id:"schema-ORDERS-v2"      <- MUST precede [7]; MUST follow [5]
-  [7]  INSERT           dataschema:"schema-ORDERS-v2"
+  [7]  INSERT           dataschema:"urn:opencdc:schema:schema-ORDERS-v2"
   [8]  HEARTBEAT        (no schema ref required)
 
   VIOLATION: emitting [3] before [2] -> non-conformant producer
@@ -874,7 +874,7 @@ In multi-channel deployments, the producer typically has no direct session relat
 
 When active, the producer MUST embed the full OBJECT_METADATA data payload inline within every DML event under a top-level key named _schema in the DML data object. The embedded _schema object MUST be structurally identical to the data block of a standalone OBJECT_METADATA event and MUST contain table, schema_version, primary_key, columns[], and json_schema. (P-SCHEMA-5)
 
-The DML event's dataschema CloudEvents field MUST still reference the CloudEvents id of the most recently emitted standalone OBJECT_METADATA event. The _schema embedding supplements but does not replace the dataschema reference.
+The DML event's dataschema CloudEvents field MUST still reference the CloudEvents id of the most recently emitted standalone OBJECT_METADATA event (in the URN form of Section 3.1). The _schema embedding supplements but does not replace the dataschema reference.
 
 Note: The _schema embedding does not violate the Section 4.1 values-only constraint on before/after — it is a separate, optional top-level key alongside those fields, not within them.
 
@@ -1039,7 +1039,7 @@ When changed_columns is present: columns absent from before/after are UNCHANGED 
 {
   "specversion": "1.1", "id": "evt-001", "type": "com.acme.cdc.dml.INSERT",
   "source": "//oracle-prod/ORCL/FINANCE", "subject": "FINANCE.ORDERS",
-  "dataschema": "schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
+  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
   "cdcxid": "txn-000001", "cdctxorder": 0, "cdcpos": "000001:0",
   "data": {
     "table":       { "catalog":"ORCL", "schema":"FINANCE", "name":"ORDERS" },
@@ -1065,7 +1065,7 @@ When changed_columns is present: columns absent from before/after are UNCHANGED 
 {
   "specversion": "1.1", "id": "evt-002", "type": "com.acme.cdc.dml.UPDATE",
   "source": "//oracle-prod/ORCL/FINANCE", "subject": "FINANCE.ORDERS",
-  "dataschema": "schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
+  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
   "cdcxid": "txn-000002", "cdctxorder": 0, "cdcpos": "000002:0",
   "data": {
     "table":           { "catalog":"ORCL", "schema":"FINANCE", "name":"ORDERS" },
@@ -1093,7 +1093,7 @@ When changed_columns is present: columns absent from before/after are UNCHANGED 
 ```
 {
   "specversion": "1.1", "id": "evt-003", "type": "com.acme.cdc.dml.DELETE",
-  "dataschema": "schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
+  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
   "cdcxid": "txn-000003", "cdctxorder": 0, "cdcpos": "000003:0",
   "data": {
     "table":       { "catalog":"ORCL", "schema":"FINANCE", "name":"ORDERS" },
@@ -1436,7 +1436,7 @@ A producer MUST NOT emit a `ddl.*` event for a change that did not occur as a so
   "source":         "//oracle-prod.acme.com/ORCL/FINANCE",
   "subject":        "FINANCE.ORDERS",
   "type":           "com.acme.cdc.ddl.ALTER",
-  "dataschema":     "schema-FINANCE-ORDERS-v3",
+  "dataschema":     "urn:opencdc:schema:schema-FINANCE-ORDERS-v3",
   "time":           "2026-03-22T15:00:00.000Z",
   "datacontenttype":"application/json",
   "cdcspecversion": "0.3",
@@ -1539,7 +1539,7 @@ TRUNCATE events carry the standard DML payload envelope fields. primary_key MUST
   "type":           "com.acme.cdc.dml.TRUNCATE",
   "time":           "2026-05-10T09:00:00.000Z",
   "datacontenttype":"application/json",
-  "dataschema":     "schema-AUDIT-LOG-v1",
+  "dataschema":     "urn:opencdc:schema:schema-AUDIT-LOG-v1",
   "cdcspecversion": "0.3",
   "cdcxid":         "txn-00441820",
   "cdctxorder":     0,
@@ -1576,7 +1576,7 @@ TRUNCATE events carry the standard DML payload envelope fields. primary_key MUST
   "type":           "com.acme.cdc.dml.TRUNCATE",
   "time":           "2026-05-10T09:00:05.000Z",
   "datacontenttype":"application/json",
-  "dataschema":     "schema-AUDIT-LOG-v1",
+  "dataschema":     "urn:opencdc:schema:schema-AUDIT-LOG-v1",
   "cdcspecversion": "0.3",
   "cdcxid":         "truncate:FINANCE.AUDIT_LOG:0000001A00000900",
   "cdctxorder":     0,
@@ -1815,7 +1815,7 @@ OpenCDC defines optional fields to support distributed tracing and event correla
   "specversion":    "1.1",
   "id":             "7f3a2b10-...",
   "type":           "com.acme.cdc.dml.INSERT",
-  "dataschema":     "schema-ORDERS-v2",
+  "dataschema":     "urn:opencdc:schema:schema-ORDERS-v2",
   "cdcspecversion": "0.3",
   "cdcxid":         "txn-001",
   "cdcpos":         "000001:0",
@@ -2459,7 +2459,7 @@ Every DML/DDL event references a schema by its `dataschema`. You SHOULD resolve 
 
 - **C-SCHEMA-2:** detect schema changes by comparing the producer-provided `schema_version` drift signal in a received OBJECT_METADATA against your last cached version for that table. *(Optional technique: you MAY additionally compute your own hash of the cached column descriptors for a fast equality check -- scope and algorithm are entirely your choice. OpenCDC does not define a producer-supplied schema hash.)*
 - **C-SCHEMA-3:** update your cache immediately on a new OBJECT_METADATA; apply it to all subsequent DML referencing the new schema id.
-- **C-SCHEMA-4:** never apply a DML event using a stale schema; if `dataschema` does not match a cached schema id, do not apply and surface an error.
+- **C-SCHEMA-4:** never apply a DML event using a stale schema; if `dataschema` (with its `urn:opencdc:schema:` prefix removed) does not match a cached schema id, do not apply and surface an error.
 - **C-ORD-1 (missing schema):** on a DML event whose `dataschema` is not cached, take exactly one of: (a) if an embedded `_schema` is present (Schema on Each Event) with a consistent version, use it; (b) pause and trigger a reconnect to request re-emission; or (c) reject and surface an error. **Never infer schema from value shapes** -- silent inference produces wrong results for engine-specific types (ORACLE_DATE, UINT64, MYSQL_TIMESTAMP, ...).
 - Acquisition by mode: `session_aware: true` -> expect schema in-stream and re-emitted on reconnect; `session_aware: false` -> read from the control channel or rely on Schema on Each Event (which is required to be active when Schema on Reconnect is off).
 - **Control-channel race (multi-channel):** the producer publishes a new OBJECT_METADATA to the control channel *before* any data event references it, but you poll the two channels independently -- a data event carrying an unknown `dataschema` can arrive before your control-channel poll delivers the new version. This is a race, not corruption: pause consumption of that channel/partition, re-poll the control channel until the referenced schema version arrives, then resume. Do not decode-and-guess and do not drop the event.
