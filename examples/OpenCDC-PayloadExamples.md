@@ -27,7 +27,7 @@
 Source: Oracle 23ai · Table: `FINANCE.CUSTOMER_ORDERS` · June 2026
 Aligned to: OpenCDC Specification **v0.6**
 
-> **A note on versions.** The `cdcspecversion` / `opencdc_version` fields below carry `"0.3"`, the OpenCDC wire-protocol version defined in the specification (Section 3.3 and Terms and Definitions), *not* the specification document revision (v0.7.0). The wire protocol was bumped 0.2 -> 0.3 in the v0.7.0 revision (capability axes, TRX_COMMIT, `cdcschemauri`); every payload here is conformant to v0.7.0 as written.
+> **A note on versions.** The `cdcspecversion` / `opencdc_version` fields below carry `"0.4"`, the OpenCDC wire-protocol version defined in the specification (Section 3.3 and Terms and Definitions), *not* the specification document revision (v0.7.1). The wire protocol was bumped 0.2 -> 0.3 in the v0.7.0 revision (capability axes, TRX_COMMIT, `cdcschemauri`) and 0.3 -> 0.4 in the v0.7.1 revision (`dataschema` URN form, observability attribute names, initial-load markers); every payload here is conformant to v0.7.1 as written.
 
 ---
 
@@ -77,10 +77,10 @@ STREAM_METADATA is session-scoped: it is emitted to each connecting consumer bef
   "type":            "com.acme.cdc.meta.STREAM_METADATA",
   "time":            "2026-05-03T09:00:00.000Z",
   "datacontenttype": "application/json",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "data": {
     "producer":                   "Oracle GoldenGate 26.1",
-    "opencdc_version":            "0.3",
+    "opencdc_version":            "0.4",
     "source_db":                  "Oracle 23ai",
     "capture_mode":               "GoldenGate Native",
     "tables":                     ["FINANCE.CUSTOMER_ORDERS"],
@@ -121,7 +121,7 @@ This single event carries the complete type information for every subsequent INS
   "type":            "com.acme.cdc.meta.OBJECT_METADATA",
   "time":            "2026-05-03T09:00:00.100Z",
   "datacontenttype": "application/json",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "data": {
     "table":          { "catalog": "ORCL", "schema": "FINANCE", "name": "CUSTOMER_ORDERS" },
     "schema_version": 1,
@@ -254,7 +254,7 @@ This single event carries the complete type information for every subsequent INS
   "time":            "2026-05-03T09:53:01.000Z",
   "datacontenttype": "application/json",
   "dataschema":      "urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1",             // references OBJECT_METADATA id
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcxid":          "1510528009.5.13.0001",                  // transaction identity
   "cdctxorder":      0,                                       // 0-based position within transaction
   "cdcpos":          "000000005DE4A891:1",                    // opaque resume handle
@@ -310,7 +310,7 @@ This event demonstrates three producer behaviors simultaneously: partial UPDATE 
   "time":            "2026-05-03T11:07:44.000Z",
   "datacontenttype": "application/json",
   "dataschema":      "urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcxid":          "1510528009.5.14.0001",                  // new transaction -> new cdcxid
   "cdctxorder":      0,
   "cdcpos":          "000000005DE4B102:1",
@@ -375,7 +375,7 @@ DELETE always carries a full before image — no `changed_columns`. The before i
   "time":            "2026-05-03T14:55:22.000Z",
   "datacontenttype": "application/json",
   "dataschema":      "urn:opencdc:schema:schema-CUSTOMER_ORDERS-v1",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcxid":          "1510528009.5.15.0001",
   "cdctxorder":      0,
   "cdcpos":          "000000005DE4C847:1",
@@ -431,7 +431,7 @@ Emitted within `heartbeat_interval_seconds` (30s) after the DELETE transaction w
   "type":            "com.acme.cdc.meta.HEARTBEAT",
   "time":            "2026-05-03T14:55:52.000Z",
   "datacontenttype": "application/json",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcpos":          "000000005DE4C847:1",     // last confirmed position
   "data": {
     "source_lag_ms":  312,                     // capture is 312ms behind source commit time
@@ -481,7 +481,7 @@ A deployment backed by an external schema registry. Note that `dataschema` still
   "datacontenttype": "application/json",
   "dataschema":      "urn:opencdc:schema:schema-public-ORDERS-v4",
   "cdcschemauri":    "https://registry.acme.com/subjects/public.orders/versions/4/schema",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcxid":          "764421:0004512",
   "cdctxorder":      0,
   "cdcpos":          "0/1A2B3C4D:0",
@@ -509,10 +509,10 @@ A connector-style producer with no consumer session. `session_aware` is `false`,
   "type":            "com.acme.cdc.meta.STREAM_METADATA",
   "time":            "2026-05-03T09:00:00.000Z",
   "datacontenttype": "application/json",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "data": {
     "producer":                   "Debezium 3.4 (PostgreSQL)",
-    "opencdc_version":            "0.3",
+    "opencdc_version":            "0.4",
     "source_db":                  "PostgreSQL 17",
     "capture_mode":               "Logical Decoding (pgoutput)",
     "tables":                     ["public.orders", "public.customers"],
@@ -547,7 +547,7 @@ The stream declared in Example 8 (`transaction_interleaving: "possible"`, `trans
   "type":            "com.acme.cdc.meta.TRX_COMMIT",
   "time":            "2026-05-03T10:16:04.221Z",
   "datacontenttype": "application/json",
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcxid":          "764421:0004513",
   "cdcpos":          "0/1A2B3D10:2",
   "data": {

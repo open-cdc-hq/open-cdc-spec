@@ -8,7 +8,7 @@
       "type": "string"
     },
     "opencdc_version": {
-      "const": "0.3"
+      "const": "0.4"
     },
     "source_db": {
       "type": "string"

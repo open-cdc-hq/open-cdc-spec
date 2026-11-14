@@ -1,10 +1,10 @@
-OpenCDC Specification -- Draft v0.7.0
+OpenCDC Specification -- Draft v0.7.1
 
 # OpenCDC
 
 # Open Change Data Capture Specification
 
-Draft v0.7.0 -- July 2026
+Draft v0.7.1 -- November 2026
 
 Status: Draft for Discussion
 
@@ -186,7 +186,7 @@ The following terms are normative for this specification. Body text uses them in
 - **Active table** -- A captured table for which change events have flowed in this stream. Schema re-emission and control-channel maintenance obligations (Sections 4.4, 4.5.2) govern active tables.
 - **Replay** -- Re-delivery of events from a saved position, in original order, with original event IDs; at-least-once delivery is the minimum guarantee.
 - **Position** -- The resume state of a stream: the opaque `cdcpos` envelope handle and the structured payload `pos` object.
-- **Wire protocol version** -- The version of the event contract itself, carried in every event as `cdcspecversion` / `opencdc_version` (this revision: "0.3"); distinct from this document's revision number.
+- **Wire protocol version** -- The version of the event contract itself, carried in every event as `cdcspecversion` / `opencdc_version` (this revision: "0.4"); distinct from this document's revision number.
 
 # 1. Quick Start -- Minimal Conformant Stream
 
@@ -203,10 +203,10 @@ This section shows the minimum viable OpenCDC stream for a single-table producer
   "type":           "com.acme.cdc.meta.STREAM_METADATA",
   "time":           "2026-05-03T10:00:00.000Z",
   "datacontenttype":"application/json",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "data": {
     "producer":        "Acme CDC Tool 1.0",
-    "opencdc_version": "0.3",
+    "opencdc_version": "0.4",
     "source_db":       "PostgreSQL 17",
     "tables":          ["sales.ORDERS"],
     "ordering_scope":            "stream",
@@ -226,7 +226,7 @@ This section shows the minimum viable OpenCDC stream for a single-table producer
   "type":           "com.acme.cdc.meta.OBJECT_METADATA",
   "time":           "2026-05-03T10:00:00.000Z",
   "datacontenttype":"application/json",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcpos":         "0000000000A1B2C3:0",
   "data": {
     "table": { "schema": "sales", "name": "ORDERS" },
@@ -263,7 +263,7 @@ This section shows the minimum viable OpenCDC stream for a single-table producer
   "time":           "2026-05-03T10:01:00.000Z",
   "datacontenttype":"application/json",
   "dataschema":     "urn:opencdc:schema:schema-ORDERS-v1",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcxid":         "txn-00000001",
   "cdctxorder":     0,
   "cdcpos":         "0000000100000001:0",
@@ -532,7 +532,7 @@ CDC-specific envelope fields that have no CloudEvents native equivalent are carr
 - **cdcspecversion**
   - Type: String
   - Required: MUST
-  - Description: OpenCDC spec version. "0.3" for this revision (wire protocol 0.3). Distinct from CloudEvents specversion.
+  - Description: OpenCDC spec version. "0.4" for this revision (wire protocol 0.4). Distinct from CloudEvents specversion.
 
 - **cdcxid**
   - Type: String
@@ -612,7 +612,7 @@ Loop suppression MUST be implemented by the producer, not the consumer. A consum
   "datacontenttype": "application/json",
   "dataschema":      "urn:opencdc:schema:schema-ORDERS-v2",                       // OBJECT_METADATA id
   // -- OpenCDC extension attributes --
-  "cdcspecversion":  "0.3",
+  "cdcspecversion":  "0.4",
   "cdcxid":          "1510528009.5.13.7625",
   "cdctxorder":      2,
   "cdcpos":          "0000012C000004D2:14",
@@ -711,7 +711,7 @@ The OBJECT_METADATA event carries the complete column descriptor block. Its stru
   "type":           "com.acme.cdc.meta.OBJECT_METADATA",
   "time":           "2026-03-22T14:00:00.000Z",
   "datacontenttype":"application/json",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "data": {
     "table": { "catalog": "ORCL", "schema": "FINANCE", "name": "ORDERS" },
     "schema_version": 2,
@@ -1048,7 +1048,7 @@ When changed_columns is present: columns absent from before/after are UNCHANGED 
 {
   "specversion": "1.1", "id": "evt-001", "type": "com.acme.cdc.dml.INSERT",
   "source": "//oracle-prod/ORCL/FINANCE", "subject": "FINANCE.ORDERS",
-  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
+  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.4",
   "cdcxid": "txn-000001", "cdctxorder": 0, "cdcpos": "000001:0",
   "data": {
     "table":       { "catalog":"ORCL", "schema":"FINANCE", "name":"ORDERS" },
@@ -1074,7 +1074,7 @@ When changed_columns is present: columns absent from before/after are UNCHANGED 
 {
   "specversion": "1.1", "id": "evt-002", "type": "com.acme.cdc.dml.UPDATE",
   "source": "//oracle-prod/ORCL/FINANCE", "subject": "FINANCE.ORDERS",
-  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
+  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.4",
   "cdcxid": "txn-000002", "cdctxorder": 0, "cdcpos": "000002:0",
   "data": {
     "table":           { "catalog":"ORCL", "schema":"FINANCE", "name":"ORDERS" },
@@ -1102,7 +1102,7 @@ When changed_columns is present: columns absent from before/after are UNCHANGED 
 ```
 {
   "specversion": "1.1", "id": "evt-003", "type": "com.acme.cdc.dml.DELETE",
-  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.3",
+  "dataschema": "urn:opencdc:schema:schema-FIN-ORDERS-v2", "cdcspecversion":"0.4",
   "cdcxid": "txn-000003", "cdctxorder": 0, "cdcpos": "000003:0",
   "data": {
     "table":       { "catalog":"ORCL", "schema":"FINANCE", "name":"ORDERS" },
@@ -1448,7 +1448,7 @@ A producer MUST NOT emit a `ddl.*` event for a change that did not occur as a so
   "dataschema":     "urn:opencdc:schema:schema-FINANCE-ORDERS-v3",
   "time":           "2026-03-22T15:00:00.000Z",
   "datacontenttype":"application/json",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcxid":         "1510528009.5.14.0001",
   "cdctxorder":     0,                                        // MUST for DDL; 0 = solitary DDL or first event in mixed transaction
   "cdcpos":         "0000012C000005A1:1",
@@ -1494,7 +1494,7 @@ Producers MUST emit HEARTBEAT events periodically during idle periods (no DML ch
   "type":           "com.acme.cdc.meta.HEARTBEAT",
   "time":           "2026-03-22T14:25:00.000Z",
   "datacontenttype":"application/json",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcpos":         "0000012C000004D2:14",    // last confirmed position
   "data": {
     "source_lag_ms":   0,
@@ -1549,7 +1549,7 @@ TRUNCATE events carry the standard DML payload envelope fields. primary_key MUST
   "time":           "2026-05-10T09:00:00.000Z",
   "datacontenttype":"application/json",
   "dataschema":     "urn:opencdc:schema:schema-AUDIT-LOG-v1",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcxid":         "txn-00441820",
   "cdctxorder":     0,
   "cdcpos":         "0000001A000007B2:0",
@@ -1586,7 +1586,7 @@ TRUNCATE events carry the standard DML payload envelope fields. primary_key MUST
   "time":           "2026-05-10T09:00:05.000Z",
   "datacontenttype":"application/json",
   "dataschema":     "urn:opencdc:schema:schema-AUDIT-LOG-v1",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcxid":         "truncate:FINANCE.AUDIT_LOG:0000001A00000900",
   "cdctxorder":     0,
   "cdcpos":         "0000001A00000900:0",
@@ -1652,7 +1652,7 @@ STREAM_METADATA events carry stream-level information that consumers need to con
 Every STREAM_METADATA event MUST contain the following fields in its data object:
 
 - **producer**: Human-readable tool/vendor identifier
-- **opencdc_version**: Wire/spec version (e.g., "0.3")
+- **opencdc_version**: Wire/spec version (e.g., "0.4")
 - **source_db**: Source database system identification
 - **tables**: Array of table identifiers captured in this stream (the *captured tables*; see Terms and Definitions)
 - **heartbeat_interval_seconds**: Integer. Maximum idle interval before HEARTBEAT emission (P-HB-1). There is no value that disables HEARTBEAT.
@@ -1683,7 +1683,7 @@ When `session_aware` is false, the producer cannot detect consumer connections; 
   "type": "com.acme.cdc.meta.STREAM_METADATA",
   "data": {
     "producer":        "Acme CDC Tool 1.0",
-    "opencdc_version": "0.3",
+    "opencdc_version": "0.4",
     "source_db":       "Oracle 23ai",
     "capture_mode":    "logminer",
     "tables":          ["FINANCE.ORDERS", "FINANCE.AUDIT_LOG"],
@@ -1825,7 +1825,7 @@ OpenCDC defines optional fields to support distributed tracing and event correla
   "id":             "7f3a2b10-...",
   "type":           "com.acme.cdc.dml.INSERT",
   "dataschema":     "urn:opencdc:schema:schema-ORDERS-v2",
-  "cdcspecversion": "0.3",
+  "cdcspecversion": "0.4",
   "cdcxid":         "txn-001",
   "cdcpos":         "000001:0",
   "cdctraceid":       "4bf92f3577b34da6a3ce929d0e0e4736",   // W3C trace context
@@ -2745,6 +2745,10 @@ This section is informative and prefigures a future normative Kafka transport bi
 **Schema-race and bounded-wait mechanics.** The general guidance in Appendix A.2 (control-channel schema race) and Appendix A.10 (bounded wait for missing markers) applies on Kafka via ordinary consumer poll-loop mechanics: pausing consumption of the affected partition (e.g., a `pause()`/`resume()` cycle), re-polling the control topic until the required schema version or marker arrives, and resuming only then. Neither situation should be treated as corruption; both are ordinary races between independently-progressing channels.
 
 # Change Log
+
+- **v0.7.1**
+  - Date: November 2026
+  - Summary of Changes: Normative corrections and clarifications from the v0.7.0 review; wire protocol 0.3 -> 0.4. **BREAKING** (per the new P-COMPAT-2): (1) §13 observability attributes renamed `trace_id` -> `cdctraceid` and `correlation_id` -> `cdccorrelationid`. (2) §3.1 `dataschema` now carries `urn:opencdc:schema:` followed by the OBJECT_METADATA id; CloudEvents types `dataschema` as a URI and the bare id has no scheme. The OBJECT_METADATA id is unchanged. (3) §10.3 initial-load completion is signalled by new `meta.SNAPSHOT_BEGIN`/`meta.SNAPSHOT_END` markers, replacing the undefined `snapshot_complete` attribute and the first-DML transition. (4) §3.3/§6.1 `partitionkey`, when emitted, is a deterministic function of (table, primary key) and is no longer co-partitioned by cdcxid (P-ORD-6). (5) §2.4 closed-world rejection narrowed to `before`/`after` row values; unknown top-level payload fields and envelope extensions are ignorable. (6) §5.2 `_lob_overflow` widened to any value not captured or delivered in the event. Additive: (7) STREAM_METADATA `initial_load` (§10.3, §10.4); `ddl_capture` listed in §10.4. Clarifications and tightening: (8) §2.2a/§6.1/§8.3 one axis-gated T-NOINTERLEAVE with `"none"` defined per channel; T-NOINTERLEAVE-MC and P-ORD-6-MC removed. (9) §8.1/§8.2 `pos.lsn` is the commit position and the resume unit is the transaction (R-POS-8); unavailable resume position is an error (R-POS-9); no source-log release before delivery-layer acknowledgement (R-POS-10); replay rendering (R-POS-11); producer durable state (P-STATE-1). (10) §9/§8.3 synthetic cdcxid for all non-transactional DDL (P-DDL-4); committed-only and two-phase-commit emission. (11) §8.4 reset is optional, configured and announced, with replace semantics (Scenario 6); Scenario 2 and Scenario 3 aligned; new §8.4.5 producer-side source-incarnation check; P-SEQ-6 scoped to the session. (12) §10.1 HEARTBEAT during idle periods restated as P-HB-1; no configuration defaults prescribed. (13) Terms: producer boundary defined. §3.1 `time` commit-time fallback; §6.2 P-TYPE-2 deterministic within a producer configuration; P-TYPE-4 and the §5.2/§5.4 full-image rule refer to the emission schema; §4.5.2 segment-boundary schema re-emission for sessionless single-channel streams; §3.4 loop-prevention obligation (2) and T-08b scoping; §12 binding vocabulary extended. (14) Appendix B.4 informative Kafka guidance: durability floor, ordering under retry, retention sizing, compaction, partition sizing, binary-mode headers. (15) Editorial: §16 pointer, §15, §19 preamble, T-03, T-14, T-18, B.1, C-ORD-3, §10.2.5 Oracle cascade, stray footer. The §10.3 default-start sentence is pending working-group confirmation. v0.7.0 items (7), (12), (13), (15) and (21) describe constructs later removed by its item (22) (§2.2b, P-INT-1, normative C-COMP-1) and are retained as history. R-POS-7 and P-RET-1 remain in the body pending a working-group decision on replay-window ownership. Deferred to the working group and unchanged in this revision: before-image declarations and `changed_columns` semantics, replay-window declaration, event-id format and lifecycle-id uniqueness, `source_type` rendering, CloudEvents `specversion`, source re-fetch, schema-change tracking, keyless-table identity, non-JSON encodings, and `fork_position`.
 
 - **v0.7.0**
   - Date: July 2026
