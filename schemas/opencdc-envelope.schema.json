@@ -28,10 +28,11 @@
       "const": "application/json"
     },
     "dataschema": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^urn:opencdc:schema:"
     },
     "cdcspecversion": {
-      "const": "0.3"
+      "const": "0.4"
     },
     "cdcxid": {
       "type": "string"
@@ -59,6 +60,12 @@
     },
     "cdcsourceid": {
       "type": "string"
+    },
+    "cdctraceid": {
+      "type": "string"
+    },
+    "cdccorrelationid": {
+      "type": "string"
     }
   },
   "required": [
@@ -72,6 +79,22 @@
     "data"
   ],
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "pattern": "\\.cdc\\.meta\\.SNAPSHOT_(BEGIN|END)"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "subject",
+          "cdcxid",
+          "cdcpos"
+        ]
+      }
+    },
     {
       "if": {
         "properties": {

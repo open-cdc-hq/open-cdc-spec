@@ -5,15 +5,15 @@
 #                         every event as cdcspecversion / opencdc_version.
 #   document revisions -- editorial/structural changes bump the doc revision only;
 #                         patch (x.y.Z) for editorial, minor (x.Y) for structure.
-wire_protocol: "0.3"
+wire_protocol: "0.4"
 documents:
   specification:
-    version: "0.7.0"
-    date: 2026-07
-    tracks_wire: "0.3"
+    version: "0.7.1"
+    date: 2026-11
+    tracks_wire: "0.4"
   type_system:
-    version: "0.2"
-    date: 2026-05
+    version: "0.2.1"
+    date: 2026-11
     normative_for: specification
   architecture_decision_record:
     version: "0.2"
@@ -28,13 +28,13 @@ documents:
     date: 2026-08
     role: informative
   payload_examples:
-    tracks_wire: "0.3"
-    conformant_to_spec: "0.7.0"
+    tracks_wire: "0.4"
+    conformant_to_spec: "0.7.1"
     role: informative
 artifacts:
   schemas:
-    tracks_wire: "0.3"
+    tracks_wire: "0.4"
     role: informative tooling (normative status pending working-group decision)
   requirements_register:
-    tracks_spec: "0.7.0"
+    tracks_spec: "0.7.1"
     role: working-group data (source for generated Sections 17 and 19.1)

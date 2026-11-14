@@ -1,10 +1,10 @@
-OpenCDC Specification -- Type System Proposal -- Draft v0.2
+OpenCDC Specification -- Type System Proposal -- Draft v0.2.1
 
 # OpenCDC Specification
 
 # Type System Proposal
 
-Payload Type System Design -- Draft v0.2
+Payload Type System Design -- Draft v0.2.1
 
 May 2026 -- OpenCDC Working Group
 
@@ -75,6 +75,10 @@ May 2026 -- OpenCDC Working Group
 <!-- toc:end -->
 
 # Change Log
+
+- **v0.2.1**
+  - Date: November 2026
+  - Changes: Alignment with OpenCDC Specification v0.7.1. (1) Section 4.2: OBJECT_METADATA re-emission is triggered by any emission-schema change, not only DDL, matching Specification Section 4.1. (2) Section 4.3: Approach 1 labelled Schema on Reconnect Mode, matching Specification Section 6.4. (3) `_lob_overflow` widened to any value not captured or delivered in the event. (4) TIMESTAMP_LTZ: the offset carried is the database time zone in effect at the source commit.
 
 - **v0.1**
   - Date: May 2026
@@ -399,14 +403,14 @@ VIOLATION: emitting [7] before [6] is a conformance failure.
 VIOLATION: emitting [2] before [1] is a conformance failure.
 ```
 
-**DDL Is the Sole Schema Invalidation Trigger**
-A producer MUST re-emit an OBJECT_METADATA event if and only if a DDL event changes the structure of the table. Time elapsed, consumer reconnection, and high event volume are NOT triggers for schema re-emission in the stream itself. Schema re-emission on consumer reconnection is a separate producer behavior defined in Section 4.3 and does not affect in-stream ordering.
+**Emission-Schema Change Is the Schema Invalidation Trigger**
+A producer MUST re-emit an OBJECT_METADATA event whenever the table's emission schema changes (Specification Section 4.1), for any reason, including a source schema change. Time elapsed, consumer reconnection, and high event volume are NOT triggers for schema re-emission in the stream itself. Schema re-emission on consumer reconnection is a separate producer behavior defined in Section 4.3 and does not affect in-stream ordering.
 
 ## 4.3 Producer Obligations for Consumer Reconnection
 
 A consumer that connects or reconnects to a live stream may do so at a position where OBJECT_METADATA events for active tables were emitted before the connection began. The producer MUST support at least one of the two following behaviors. Both are RECOMMENDED; Approach 1 MUST be the fallback if Approach 2 is not implemented.
 
-### Approach 1 -- Schema Re-Emission on Connection (Required Baseline)
+### Approach 1 -- Schema Re-Emission on Connection (Schema on Reconnect Mode)
 
 When a new consumer connection is established -- whether an initial connection or a reconnect -- the producer MUST emit current OBJECT_METADATA events for all tables that are active in the stream before resuming data delivery from the requested start position.
 
@@ -604,7 +608,7 @@ The distinction between a genuinely null LOB and an uncaptured LOB MUST be prese
 
 - **_lob_overflow**
   - Type: Array of column names
-  - Meaning: LOB columns whose content was not captured by the CDC tool (e.g., LOB not in transaction log, size exceeded inline limit). The value field for these columns MUST be JSON null. Consumers MUST NOT interpret this null as the actual column value.
+  - Meaning: Columns whose value was not captured or delivered in this event (e.g., LOB not in transaction log, size exceeded inline limit, an unchanged out-of-line value such as an unchanged TOASTed column, a value the source did not log). On an UPDATE `after` image, a listed column means the target retains its existing value (Specification Section 5.2). The value field for these columns MUST be JSON null. Consumers MUST NOT interpret this null as the actual column value.
 
 ```
 Scenario: NOTES column is genuinely NULL, PAYLOAD column exceeded inline capture limit.
@@ -948,7 +952,7 @@ Special float values (appear as strings in DML value payloads): "NaN", "Infinity
 - **TIMESTAMP_LTZ**
   - Parameters: precision (0-9)
   - Wire Encoding in DML: "YYYY-MM-DDTHH:MM:SS+HH:MM"
-  - Notes: Oracle TIMESTAMP WITH LOCAL TIME ZONE. Carry DB timezone offset at capture time.
+  - Notes: Oracle TIMESTAMP WITH LOCAL TIME ZONE. Carry the database time zone offset (DBTIMEZONE) in effect at the source commit.
 
 - **TIME**
   - Parameters: precision (0-9)

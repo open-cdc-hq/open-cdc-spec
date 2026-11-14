@@ -8,7 +8,7 @@
       "type": "string"
     },
     "opencdc_version": {
-      "const": "0.3"
+      "const": "0.4"
     },
     "source_db": {
       "type": "string"
@@ -64,6 +64,12 @@
         "verbatim",
         "structural",
         "none"
+      ]
+    },
+    "initial_load": {
+      "enum": [
+        "none",
+        "at_start"
       ]
     },
     "session_aware": {
